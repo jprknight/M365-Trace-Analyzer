@@ -29,7 +29,7 @@ public sealed class RuleCatalogTests
             .Select(rule => rule.Id);
 
         Assert.Equal(expectedOrder, catalog.Rules.Select(rule => rule.Id));
-        Assert.Equal("1.0.1", catalog.Manifest.RulesetVersion);
+        Assert.Equal("1.0.2", catalog.Manifest.RulesetVersion);
         Assert.Equal(1, catalog.Manifest.SchemaVersion);
         Assert.Equal("0.1.0", catalog.Manifest.MinimumApplicationVersion);
         Assert.Equal(151, catalog.Manifest.SessionClassificationCount);

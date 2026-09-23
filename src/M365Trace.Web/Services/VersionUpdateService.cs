@@ -9,7 +9,7 @@ public sealed class VersionUpdateService
 {
     private const string GitHubClientName = "GitHubReleases";
     private const string LatestReleasePath =
-        "repos/jprknight/M365-HAR-Viewer/releases/latest";
+        "repos/jprknight/M365-Trace-Analyzer/releases/latest";
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly object _sync = new();
