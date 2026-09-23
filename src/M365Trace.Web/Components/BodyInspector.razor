@@ -139,10 +139,14 @@
             return null;
         }
 
+        var parseText = text[0] == '\uFEFF'
+            ? text[1..]
+            : text;
+
         try
         {
             using var document = JsonDocument.Parse(
-                text,
+                parseText,
                 new JsonDocumentOptions
                 {
                     AllowTrailingCommas = true,
