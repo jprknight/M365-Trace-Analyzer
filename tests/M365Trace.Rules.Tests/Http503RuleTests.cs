@@ -81,19 +81,19 @@ public sealed class Http503RuleTests
         string url = "https://outlook.office.com/owa/",
         string? responseText = null,
         IReadOnlyList<TraceHeader>? requestHeaders = null) => new()
-    {
-        Id = 1,
-        StartedAt = DateTimeOffset.Parse("2026-09-23T10:00:00-04:00"),
-        Method = "GET",
-        Url = new Uri(url),
-        StatusCode = statusCode,
-        StatusText = statusCode == 503 ? "Service Unavailable" : "OK",
-        Duration = TimeSpan.FromMilliseconds(100),
-        RequestHeaders = requestHeaders ?? [],
-        ResponseContent = responseText is null
+        {
+            Id = 1,
+            StartedAt = DateTimeOffset.Parse("2026-09-23T10:00:00-04:00"),
+            Method = "GET",
+            Url = new Uri(url),
+            StatusCode = statusCode,
+            StatusText = statusCode == 503 ? "Service Unavailable" : "OK",
+            Duration = TimeSpan.FromMilliseconds(100),
+            RequestHeaders = requestHeaders ?? [],
+            ResponseContent = responseText is null
             ? null
             : new TraceContent(responseText, "text/plain", responseText.Length, false, false)
-    };
+        };
 }
 
 internal static class RuleTestExtensions

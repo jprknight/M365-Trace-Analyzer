@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  release:
+    name: Build and publish Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Verify release tag
+        shell: pwsh
+        run: .\eng\Test-ReleaseTag.ps1 -Tag '${{ github.ref }}'
+
+      - name: Restore
+        run: dotnet restore .\M365-Trace-Analyzer.sln
+
+      - name: Build
+        run: dotnet build .\M365-Trace-Analyzer.sln --configuration Release --no-restore -warnaserror
+
+      - name: Test
+        run: dotnet test .\M365-Trace-Analyzer.sln --configuration Release --no-build
+
+      - name: Publish Windows x64
+        shell: pwsh
+        run: >
+          dotnet publish .\src\M365Trace.Web\M365Trace.Web.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --output .\artifacts\publish\win-x64
+
+      - name: Smoke test published application
+        shell: pwsh
+        run: >
+          .\eng\Test-PublishedApp.ps1
+          -PublishDirectory .\artifacts\publish\win-x64
+
+      - name: Build browser smoke tests
+        run: >
+          dotnet build .\tests\M365Trace.Web.E2E.Tests\M365Trace.Web.E2E.Tests.csproj
+          --configuration Release
+
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: >
+          .\tests\M365Trace.Web.E2E.Tests\bin\Release\net10.0\playwright.ps1
+          install chromium
+
+      - name: Run browser smoke tests
+        shell: pwsh
+        env:
+          M365_TRACE_PUBLISH_DIR: ${{ github.workspace }}\artifacts\publish\win-x64
+        run: >
+          dotnet test .\tests\M365Trace.Web.E2E.Tests\M365Trace.Web.E2E.Tests.csproj
+          --configuration Release
+          --no-build
+
+      - name: Create release archive and checksum
+        id: package
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $assetName = "M365-Trace-Analyzer-v$version-win-x64.zip"
+          $assetPath = Join-Path $PWD "artifacts\$assetName"
+          Compress-Archive `
+            -Path .\artifacts\publish\win-x64\* `
+            -DestinationPath $assetPath `
+            -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "asset-path=$assetPath" >> $env:GITHUB_OUTPUT
+          "asset-name=$assetName" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          @"
+          ## M365 Trace Analyzer $version
+
+          Download and extract ``$assetName``. Open Command Prompt in the extracted folder and run:
+
+          ``M365Trace.Web.exe --urls "http://localhost:8080"``
+
+          SHA-256: ``$hash``
+          "@ | Set-Content -LiteralPath .\artifacts\release-notes.md
+
+      - name: Attest release archive
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.package.outputs.asset-path }}
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create '${{ github.ref_name }}'
+          '${{ steps.package.outputs.asset-path }}'
+          --repo '${{ github.repository }}'
+          --title 'M365 Trace Analyzer ${{ github.ref_name }}'
+          --notes-file .\artifacts\release-notes.md
+          --verify-tag

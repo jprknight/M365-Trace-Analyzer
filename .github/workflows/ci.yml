@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Build, test, and format
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore M365-Trace-Analyzer.sln
+
+      - name: Check formatting
+        run: dotnet format M365-Trace-Analyzer.sln --verify-no-changes --no-restore
+
+      - name: Build
+        run: dotnet build M365-Trace-Analyzer.sln --configuration Release --no-restore -warnaserror
+
+      - name: Test with coverage
+        run: >
+          dotnet test M365-Trace-Analyzer.sln
+          --configuration Release
+          --no-build
+          --logger "trx"
+          --results-directory TestResults
+          --settings coverage.runsettings
+          --collect:"XPlat Code Coverage"
+
+      - name: Enforce coverage floor
+        shell: pwsh
+        run: >
+          ./eng/Test-CodeCoverage.ps1
+          -ResultsDirectory TestResults
+          -MinimumLineCoveragePercent 40
+
+      - name: Check vulnerable packages
+        shell: pwsh
+        run: ./eng/Test-VulnerablePackages.ps1
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: warn
+
+  package-smoke:
+    name: Publish and smoke test Windows package
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Publish Windows x64
+        shell: pwsh
+        run: >
+          dotnet publish .\src\M365Trace.Web\M365Trace.Web.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --output .\artifacts\publish\win-x64
+
+      - name: Smoke test published application
+        shell: pwsh
+        run: >
+          .\eng\Test-PublishedApp.ps1
+          -PublishDirectory .\artifacts\publish\win-x64
+
+      - name: Build browser smoke tests
+        run: >
+          dotnet build .\tests\M365Trace.Web.E2E.Tests\M365Trace.Web.E2E.Tests.csproj
+          --configuration Release
+
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: >
+          .\tests\M365Trace.Web.E2E.Tests\bin\Release\net10.0\playwright.ps1
+          install chromium
+
+      - name: Run browser smoke tests
+        shell: pwsh
+        env:
+          M365_TRACE_PUBLISH_DIR: ${{ github.workspace }}\artifacts\publish\win-x64
+        run: >
+          dotnet test .\tests\M365Trace.Web.E2E.Tests\M365Trace.Web.E2E.Tests.csproj
+          --configuration Release
+          --no-build
+
+      - name: Archive tested package
+        shell: pwsh
+        run: >
+          Compress-Archive
+          -Path .\artifacts\publish\win-x64\*
+          -DestinationPath .\artifacts\M365-Trace-Analyzer-win-x64.zip
+          -CompressionLevel Optimal
+
+      - name: Upload tested package
+        uses: actions/upload-artifact@v7
+        with:
+          name: M365-Trace-Analyzer-win-x64
+          path: artifacts/M365-Trace-Analyzer-win-x64.zip
+          if-no-files-found: error

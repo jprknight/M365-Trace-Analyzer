@@ -200,6 +200,86 @@ public sealed class SazTraceImporterTests
         Assert.Contains("unsafe path", exception.Message);
     }
 
+    [Fact]
+    public async Task ImportAsync_EntryCountBeyondLimit_IsRejected()
+    {
+        await using var stream = CreateArchive(archive =>
+        {
+            AddEntry(archive, "raw/1_c.txt", "GET / HTTP/1.1\r\nHost: example.test\r\n\r\n");
+            AddEntry(archive, "raw/1_s.txt", "HTTP/1.1 200 OK\r\n\r\n");
+        });
+        var importer = new SazTraceImporter(
+            new SazImportOptions { MaximumEntryCount = 1 });
+
+        var exception = await Assert.ThrowsAsync<SazImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("more than 1 files", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ExpandedArchiveBeyondLimit_IsRejected()
+    {
+        await using var stream = CreateArchive(archive =>
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "GET / HTTP/1.1\r\nHost: example.test\r\n\r\n"));
+        var importer = new SazTraceImporter(
+            new SazImportOptions { MaximumExpandedSize = 10 });
+
+        var exception = await Assert.ThrowsAsync<SazImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("expanded SAZ archive exceeds", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_SessionFileBeyondLimit_IsRejected()
+    {
+        await using var stream = CreateArchive(archive =>
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "GET / HTTP/1.1\r\nHost: example.test\r\n\r\n"));
+        var importer = new SazTraceImporter(
+            new SazImportOptions { MaximumSessionFileSize = 10 });
+
+        var exception = await Assert.ThrowsAsync<SazImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("per-file size limit", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_MalformedMetadata_IsRejected()
+    {
+        await using var stream = CreateArchive(archive =>
+        {
+            AddBasicSession(archive, 1, "https://example.test/", 200);
+            AddEntry(archive, "raw/1_m.xml", "<Session>");
+        });
+
+        var exception = await Assert.ThrowsAsync<SazImportException>(
+            () => new SazTraceImporter().ImportAsync(stream));
+
+        Assert.Contains("metadata file contains invalid XML", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_CancelledImport_StopsProcessing()
+    {
+        await using var stream = CreateArchive(archive =>
+            AddBasicSession(archive, 1, "https://example.test/", 200));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => new SazTraceImporter().ImportAsync(
+                stream,
+                cancellationToken: cancellation.Token));
+    }
+
     private static MemoryStream CreateArchive(Action<ZipArchive> configure)
     {
         var stream = new MemoryStream();

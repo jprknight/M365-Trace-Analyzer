@@ -27,12 +27,12 @@ public sealed class LegacyResponseRuleTests
             307,
             "https://autodiscover.contoso.mail.onmicrosoft.com/autodiscover/autodiscover.xml")
             with
-            {
-                ResponseHeaders =
+        {
+            ResponseHeaders =
                 [
                     new TraceHeader("Location", "https://mail.contoso.com/autodiscover/autodiscover.xml")
                 ]
-            };
+        };
 
         var result = Analyze(new Http307Rules(Data), session);
 

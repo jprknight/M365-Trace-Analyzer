@@ -124,6 +124,176 @@ public sealed class HarTraceImporterTests
         Assert.Equal(10, session.ResponseContent?.Text?.Length);
     }
 
+    [Fact]
+    public async Task ImportAsync_SeekableFileBeyondLimit_IsRejected()
+    {
+        await using var stream = new MemoryStream(new byte[11]);
+        var importer = new HarTraceImporter(
+            new HarImportOptions { MaximumFileSize = 10 });
+
+        var exception = await Assert.ThrowsAsync<HarImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("exceeds", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_NonSeekableFileBeyondLimit_IsRejected()
+    {
+        await using var inner = new MemoryStream(new byte[11]);
+        await using var stream = new NonSeekableReadStream(inner);
+        var importer = new HarTraceImporter(
+            new HarImportOptions { MaximumFileSize = 10 });
+
+        var exception = await Assert.ThrowsAsync<HarImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("exceeds", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_EntryCountBeyondLimit_IsRejected()
+    {
+        const string json =
+            """
+            {
+              "log": {
+                "entries": [
+                  {
+                    "startedDateTime": "2026-09-23T10:00:00-04:00",
+                    "time": 1,
+                    "request": {
+                      "method": "GET",
+                      "url": "https://example.test/one",
+                      "headers": []
+                    },
+                    "response": {
+                      "status": 200,
+                      "headers": [],
+                      "content": {}
+                    }
+                  },
+                  {
+                    "startedDateTime": "2026-09-23T10:00:01-04:00",
+                    "time": 1,
+                    "request": {
+                      "method": "GET",
+                      "url": "https://example.test/two",
+                      "headers": []
+                    },
+                    "response": {
+                      "status": 200,
+                      "headers": [],
+                      "content": {}
+                    }
+                  }
+                ]
+              }
+            }
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var importer = new HarTraceImporter(
+            new HarImportOptions { MaximumEntryCount = 1 });
+
+        var exception = await Assert.ThrowsAsync<HarImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("more than 1 sessions", exception.Message);
+    }
+
+    [Fact]
+    public async Task ImportAsync_InvalidBase64_IsRejected()
+    {
+        const string json =
+            """
+            {
+              "log": {
+                "entries": [{
+                  "startedDateTime": "2026-09-23T10:00:00-04:00",
+                  "time": 1,
+                  "request": {
+                    "method": "GET",
+                    "url": "https://example.test/",
+                    "headers": []
+                  },
+                  "response": {
+                    "status": 200,
+                    "headers": [],
+                    "content": {
+                      "mimeType": "text/plain",
+                      "encoding": "base64",
+                      "text": "not-valid-base64"
+                    }
+                  }
+                }]
+              }
+            }
+            """;
+        await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+
+        var exception = await Assert.ThrowsAsync<HarImportException>(
+            () => new HarTraceImporter().ImportAsync(stream));
+
+        Assert.Contains("invalid data", exception.Message);
+    }
+
     private static FileStream OpenTestData(string fileName) =>
         File.OpenRead(Path.Combine(AppContext.BaseDirectory, "TestData", fileName));
+
+    private sealed class NonSeekableReadStream : Stream
+    {
+        private readonly Stream _inner;
+
+        public NonSeekableReadStream(Stream inner)
+        {
+            _inner = inner;
+        }
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            _inner.Read(buffer, offset, count);
+
+        public override int Read(Span<byte> buffer) => _inner.Read(buffer);
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
 }
