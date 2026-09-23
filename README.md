@@ -22,7 +22,7 @@ In Visual Studio Code, open **Run and Debug**, select **Run M365 Trace Analyzer*
 
 The application version is defined in `src\M365Trace.Web\M365Trace.Web.csproj` using semantic versioning. The browser header displays the version embedded in the running assembly.
 
-At startup, the application makes one anonymous request to the public GitHub Releases API for `jprknight/M365-HAR-Viewer`. The result is cached for the lifetime of the local process. The UI reports:
+At startup, the application makes one anonymous request to the public GitHub Releases API for `jprknight/M365-Trace-Analyzer`. The result is cached for the lifetime of the local process. The UI reports:
 
 - **Latest available version** when the running version matches or exceeds the latest published release
 - **Version x.y.z available** with a link when a newer release exists
@@ -43,7 +43,7 @@ The latest stable GitHub Release is the update source of truth. Tags without a p
 ## Test
 
 ```powershell
-dotnet test .\M365-HAR-Viewer.sln
+dotnet test .\M365-Trace-Analyzer.sln
 ```
 
 ## Projects
