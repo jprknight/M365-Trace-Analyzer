@@ -81,6 +81,11 @@ public sealed class StandaloneApplicationTests
             var responseSummaries = page.Locator("summary").Filter(
                 new LocatorFilterOptions { HasText = "Response headers" });
 
+            await requestSummaries.First.WaitForAsync(
+                new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+            await responseSummaries.First.WaitForAsync(
+                new LocatorWaitForOptions { State = WaitForSelectorState.Hidden });
+
             Assert.Equal(1, await requestSummaries.CountAsync());
             Assert.Equal(
                 0,
