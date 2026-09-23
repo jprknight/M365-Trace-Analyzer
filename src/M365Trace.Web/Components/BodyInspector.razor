@@ -1,0 +1,228 @@
+@using System.Text.Json
+@using System.Xml
+@using System.Xml.Linq
+
+<div class="body-inspector">
+    <div class="body-inspector-toolbar" role="toolbar" aria-label="Body display format">
+        <button type="button"
+                class="@GetButtonClass(BodyView.Raw)"
+                aria-pressed="@(selectedView == BodyView.Raw)"
+                @onclick="() => SelectView(BodyView.Raw)">Raw</button>
+        <button type="button"
+                class="@GetButtonClass(BodyView.Json)"
+                aria-pressed="@(selectedView == BodyView.Json)"
+                disabled="@(formattedJson is null)"
+                title="@(formattedJson is null ? "The body is not valid JSON." : null)"
+                @onclick="() => SelectView(BodyView.Json)">JSON</button>
+        <button type="button"
+                class="@GetButtonClass(BodyView.Html)"
+                aria-pressed="@(selectedView == BodyView.Html)"
+                disabled="@(htmlPreview is null)"
+                title="@(htmlPreview is null ? "The body is not HTML content." : null)"
+                @onclick="() => SelectView(BodyView.Html)">HTML</button>
+        <button type="button"
+                class="@GetButtonClass(BodyView.Image)"
+                aria-pressed="@(selectedView == BodyView.Image)"
+                disabled="@(imageSource is null)"
+                title="@(imageSource is null ? "No supported image preview is available." : null)"
+                @onclick="() => SelectView(BodyView.Image)">Image</button>
+        <button type="button"
+                class="@GetButtonClass(BodyView.Xml)"
+                aria-pressed="@(selectedView == BodyView.Xml)"
+                disabled="@(formattedXml is null)"
+                title="@(formattedXml is null ? "The body is not valid XML." : null)"
+                @onclick="() => SelectView(BodyView.Xml)">XML</button>
+    </div>
+
+    <div class="content-metadata">
+        @(Content.MimeType ?? "Unknown content type")
+        @if (Content.Size is not null)
+        {
+            <text> · @Content.Size.Value.ToString("N0") bytes</text>
+        }
+        @if (Content.IsTruncated)
+        {
+            <text> · Display truncated</text>
+        }
+    </div>
+
+    @switch (selectedView)
+    {
+        case BodyView.Json:
+            <pre class="body-content">@formattedJson</pre>
+            break;
+        case BodyView.Html:
+            <iframe class="body-html-preview"
+                    sandbox
+                    referrerpolicy="no-referrer"
+                    title="HTML body preview"
+                    srcdoc="@htmlPreview"></iframe>
+            break;
+        case BodyView.Image:
+            <div class="body-image-preview">
+                <img src="@imageSource" alt="Body image preview" />
+            </div>
+            break;
+        case BodyView.Xml:
+            <pre class="body-content">@formattedXml</pre>
+            break;
+        default:
+            <pre class="body-content">@GetRawText()</pre>
+            break;
+    }
+</div>
+
+@code {
+    private const string PreviewContentSecurityPolicy =
+        "<meta http-equiv=\"Content-Security-Policy\" "
+        + "content=\"default-src 'none'; img-src data:; "
+        + "style-src 'unsafe-inline'; font-src data:\">";
+
+    private TraceContent? previousContent;
+    private BodyView selectedView = BodyView.Raw;
+    private string? formattedJson;
+    private string? formattedXml;
+    private string? htmlPreview;
+    private string? imageSource;
+
+    [Parameter, EditorRequired]
+    public TraceContent Content { get; set; } = null!;
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(previousContent, Content))
+        {
+            return;
+        }
+
+        previousContent = Content;
+        selectedView = BodyView.Raw;
+        formattedJson = TryFormatJson(Content.Text);
+        formattedXml = TryFormatXml(Content.Text);
+        htmlPreview = IsHtml(Content)
+            ? PreviewContentSecurityPolicy + Content.Text
+            : null;
+        imageSource = IsPreviewableImage(Content)
+            ? $"data:{Content.MimeType};base64,{Content.Base64Data}"
+            : null;
+    }
+
+    private void SelectView(BodyView view)
+    {
+        if (view == BodyView.Raw
+            || view == BodyView.Json && formattedJson is not null
+            || view == BodyView.Html && htmlPreview is not null
+            || view == BodyView.Image && imageSource is not null
+            || view == BodyView.Xml && formattedXml is not null)
+        {
+            selectedView = view;
+        }
+    }
+
+    private string GetButtonClass(BodyView view) =>
+        selectedView == view
+            ? "body-view-button active"
+            : "body-view-button";
+
+    private string GetRawText() =>
+        Content.Text
+        ?? (Content.Base64Data is not null
+            ? "Binary image content. Select Image to preview it."
+            : Content.IsBase64Encoded
+                ? "Binary Base64 content is not displayed."
+                : "No text body was recorded.");
+
+    private static string? TryFormatJson(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(
+                text,
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip,
+                    MaxDepth = 128
+                });
+
+            return JsonSerializer.Serialize(
+                document.RootElement,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryFormatXml(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stringReader = new StringReader(text);
+            using var xmlReader = XmlReader.Create(
+                stringReader,
+                new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Prohibit,
+                    XmlResolver = null
+                });
+
+            return XDocument.Load(xmlReader).ToString();
+        }
+        catch (XmlException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsHtml(TraceContent content)
+    {
+        if (string.IsNullOrWhiteSpace(content.Text))
+        {
+            return false;
+        }
+
+        if (content.MimeType?.Contains(
+                "html",
+                StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        var trimmed = content.Text.AsSpan().TrimStart();
+        return trimmed.StartsWith("<!doctype html", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPreviewableImage(TraceContent content) =>
+        content.Base64Data is not null
+        && content.MimeType?.ToLowerInvariant() is
+            "image/png"
+            or "image/jpeg"
+            or "image/gif"
+            or "image/webp"
+            or "image/bmp"
+            or "image/x-icon"
+            or "image/vnd.microsoft.icon"
+            or "image/avif";
+
+    private enum BodyView
+    {
+        Raw,
+        Json,
+        Html,
+        Image,
+        Xml
+    }
+}
