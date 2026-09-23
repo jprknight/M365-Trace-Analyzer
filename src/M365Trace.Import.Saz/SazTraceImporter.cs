@@ -540,7 +540,15 @@ public sealed partial class SazTraceImporter : ITraceImporter
             }
         }
 
-        if (Uri.TryCreate(target, UriKind.Absolute, out var absoluteUrl))
+        if (Uri.TryCreate(target, UriKind.Absolute, out var absoluteUrl)
+            && (string.Equals(
+                    absoluteUrl.Scheme,
+                    Uri.UriSchemeHttp,
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    absoluteUrl.Scheme,
+                    Uri.UriSchemeHttps,
+                    StringComparison.OrdinalIgnoreCase)))
         {
             return absoluteUrl;
         }
