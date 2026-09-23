@@ -31,7 +31,7 @@ The remaining gaps are less about basic file viewing and more about helping a su
 7. **Import diagnostics are all-or-nothing.** A malformed session can fail an import without a structured summary of skipped, truncated, partially decoded, or unsupported content.
 8. **Correlation workflows are manual.** The UI does not elevate correlation headers, group related calls, identify redirect/retry chains, or navigate between matching sessions.
 9. **Investigation state is ephemeral.** There are no bookmarks, notes, marked sessions, or saved filter state for a support engineer working through a trace.
-10. **Regression depth is concentrated below the UI.** Importers and rules are tested, but key interactive workflows need component or end-to-end coverage.
+10. **Current UI behavior has component coverage, but future workflows remain untested.** Component tests cover import success and recovery, encrypted-SAZ password handling, free-text matching, every sortable column, session selection, finding rendering, request/response view modes, update states, and body inspectors. A packaged Chromium smoke test covers HAR upload, filtering, filter clearing, and detail selection. Structured filters, export, keyboard workflows, import-quality reporting, and representative SAZ browser tests require coverage when those features are implemented.
 
 ## Product decisions
 
@@ -42,6 +42,23 @@ The remaining gaps are less about basic file viewing and more about helping a su
 - Do not add request replay or transmission features; the analyzer remains a passive, local diagnostic tool.
 
 ## Roadmap
+
+### Implementation status — September 23, 2026
+
+Status markers in this document apply only where the complete listed outcome has been delivered:
+
+- `[x]` Completed and merged into `master`.
+- `[ ]` Planned or only partially implemented. Partial coverage is described inline.
+
+No Phase 1, Phase 2, or Phase 3 feature set is complete yet. Work completed since this roadmap was written is concentrated in release engineering and regression protection:
+
+- Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
+- CI now validates formatting, warning-free builds, 106 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, and request-only detail selection.
+- CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
+- Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
+- XML display now handles diagnostic responses containing prohibited numeric character references without altering Raw content.
+- JSON display now handles a leading UTF-8 BOM without altering Raw content.
 
 ### Phase 1 — Support-engineer triage essentials
 
@@ -423,18 +440,21 @@ The JSON schema must be deterministic so it can support future CLI or MCP consum
 
 #### 14. Add UI and integration regression coverage
 
-- Add component tests for filters, clear actions, sorting, session selection, request/response view modes, password flow, import warnings, and export redaction.
-- Add browser-level smoke tests for opening representative HAR, unencrypted SAZ, and encrypted SAZ files.
-- Test accessibility semantics and keyboard workflows for the main investigation path.
-- Retain importer safety, ruleset determinism, and secure HTML/XML preview tests.
+- [ ] Add component tests for filters, clear actions, sorting, session selection, request/response view modes, password flow, import warnings, and export redaction.
+  - Partial: all currently implemented component workflows are covered, including import/password states, free-text matching, sorting, selection, finding details, request/response modes, version states, JSON/XML formatting, HTML sandboxing, images, binary fallbacks, and truncation messaging. Structured filters, import warnings, and export redaction remain pending because those product features are not implemented.
+- [ ] Add browser-level smoke tests for opening representative HAR, unencrypted SAZ, and encrypted SAZ files.
+  - Partial: the packaged Chromium test covers HAR upload, session rendering, filtering, filter clearing, and request-only detail selection. SAZ browser coverage remains planned.
+- [ ] Test accessibility semantics and keyboard workflows for the main investigation path.
+- [x] Retain importer safety, ruleset determinism, and secure HTML/XML preview tests.
 
 #### 15. Complete release engineering
 
-- Commit and review the substantial post-`v0.1.0` work before beginning roadmap implementation.
-- Publish a release containing the already-completed encrypted SAZ, UI, port, classification, and versioning improvements before advertising later roadmap features.
-- Add repeatable publish/package verification for the Windows self-contained artifact.
-- Keep the local-only binding guidance and verify packaged static assets in release smoke tests.
-- Update README capabilities and planned-work sections at each shipped phase.
+- [x] Commit and review the substantial post-`v0.1.0` work before beginning roadmap implementation.
+- [x] Publish a release containing the already-completed encrypted SAZ, UI, port, classification, and versioning improvements before advertising later roadmap features.
+- [x] Add repeatable publish/package verification for the Windows self-contained artifact.
+- [x] Keep the local-only binding guidance and verify packaged static assets in release smoke tests.
+- [ ] Update README capabilities and planned-work sections at each shipped phase.
+  - Partial: the README documents current trace support and links to this roadmap; future shipped phases must continue updating it.
 
 ## Architecture notes
 
@@ -472,9 +492,10 @@ The JSON schema must be deterministic so it can support future CLI or MCP consum
 
 ## Recommended delivery order
 
-1. Commit and release the completed current-state work.
-2. Build Phase 1 triage, structured filters, ergonomics, and sanitized export.
-3. Expand the core model and importer fidelity with import-quality reporting.
-4. Add timeline and cross-session correlation on top of the richer model.
-5. Harden scale, cancellation, UI regression coverage, and packaging.
-6. Reassess whether an MCP adapter has a concrete support workflow after the standalone investigation experience is proven.
+1. [x] Commit and release the completed current-state work.
+2. [ ] Build Phase 1 triage, structured filters, ergonomics, and sanitized export.
+3. [ ] Expand the core model and importer fidelity with import-quality reporting.
+4. [ ] Add timeline and cross-session correlation on top of the richer model.
+5. [ ] Harden scale, cancellation, UI regression coverage, and packaging.
+   - Partial: UI regression coverage and Windows packaging automation are in place; scale benchmarks, end-to-end cancellation, virtualization, and broader browser fixtures remain planned.
+6. [ ] Reassess whether an MCP adapter has a concrete support workflow after the standalone investigation experience is proven.
