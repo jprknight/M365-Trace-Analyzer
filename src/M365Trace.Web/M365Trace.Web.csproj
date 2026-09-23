@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\M365Trace.Core\M365Trace.Core.csproj" />
+    <ProjectReference Include="..\M365Trace.Import.Har\M365Trace.Import.Har.csproj" />
+    <ProjectReference Include="..\M365Trace.Rules\M365Trace.Rules.csproj" />
+    <ProjectReference Include="..\M365Trace.Import.Saz\M365Trace.Import.Saz.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+  </PropertyGroup>
+
+</Project>
