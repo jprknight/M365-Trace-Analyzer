@@ -6,62 +6,13 @@ The current implementation supports opening HTTP Archive (`.har`) and encrypted 
 
 ## Run the standalone Windows application
 
-The GitHub Release package is self-contained. You do not need to install the .NET SDK or .NET runtime.
+- Download the latest Windows release.
+- Extract the ZIP file.
+- Open Command Prompt in the extracted folder and run:
 
-1. Download the `M365-Trace-Analyzer-vX.Y.Z-win-x64.zip` asset from the latest GitHub Release.
-2. Extract the complete ZIP file to a folder. Do not run the application from inside the ZIP.
-3. Open the extracted folder and run `M365Trace.Web.exe`.
-4. Keep the console window open while using the analyzer.
-5. Open `http://localhost:8080` in a web browser.
-6. Close the console window, or press `Ctrl+C` in it, when you are finished.
-
-The executable starts a local web server that provides the browser interface. The trace is processed by that local process; it is not uploaded to a hosted analysis service.
-
-Keep the complete extracted folder together because the executable depends on its accompanying files.
-
-### Use another port
-
-The application defaults to `http://localhost:8080`. If that port is already in use, open PowerShell in the extracted folder and run:
-
-```powershell
-.\M365Trace.Web.exe --urls "http://localhost:9090"
+```cmd
+M365Trace.Web.exe --urls "http://localhost:8080"
 ```
-
-Then open `http://localhost:9090`.
-
-Keep the host set to `localhost` so the analyzer is not exposed to other computers on the network.
-
-### Troubleshooting
-
-- If the browser cannot connect, confirm that `M365Trace.Web.exe` is still running and that its console window does not show an error.
-- If Windows reports that port 8080 is already in use, start the executable with a different local port as shown above.
-- If Windows SmartScreen appears, confirm that the package came from this repository's GitHub Release before choosing to run it.
-- If the application window closes immediately, start it from PowerShell so the error remains visible:
-
-```powershell
-.\M365Trace.Web.exe
-```
-
-## Run from source
-
-Running from source requires the .NET 10 SDK.
-
-```powershell
-dotnet run --project .\src\M365Trace.Web\M365Trace.Web.csproj
-```
-
-Keep the command running, then open `http://localhost:8080`.
-
-To use another local port when running from source:
-
-```powershell
-dotnet run `
-  --project .\src\M365Trace.Web\M365Trace.Web.csproj `
-  -- `
-  --urls "http://localhost:9090"
-```
-
-In Visual Studio Code, open **Run and Debug**, select **Run M365 Trace Analyzer**, and press `F5`. The checked-in launch configuration builds the web project, starts it on port 8080, and opens the browser automatically.
 
 ## Versioning and releases
 
