@@ -10,7 +10,7 @@
       "preLaunchTask": "Build M365 Trace Analyzer",
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "ASPNETCORE_URLS": "http://localhost:5120"
+        "ASPNETCORE_URLS": "http://localhost:8080"
       },
       "serverReadyAction": {
         "action": "openExternally",

@@ -4,7 +4,10 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
+using ICSharpCode.SharpZipLib;
+using ICSharpCode.SharpZipLib.Zip;
 using M365Trace.Core;
+using SharpZipFile = ICSharpCode.SharpZipLib.Zip.ZipFile;
 
 namespace M365Trace.Import.Saz;
 
@@ -42,6 +45,7 @@ public sealed partial class SazTraceImporter : ITraceImporter
 
     public async Task<IReadOnlyList<TraceSession>> ImportAsync(
         Stream stream,
+        TraceImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -81,17 +85,24 @@ public sealed partial class SazTraceImporter : ITraceImporter
 
                 try
                 {
-                    using var archive = new ZipArchive(
+                    using var archive = new SharpZipFile(
                         temporaryFile,
-                        ZipArchiveMode.Read,
                         leaveOpen: true);
+                    var password = options?.Password;
+                    if (!string.IsNullOrEmpty(password))
+                    {
+                        archive.Password = password;
+                    }
 
-                    return await ParseArchiveAsync(archive, cancellationToken);
+                    return await ParseArchiveAsync(
+                        archive,
+                        !string.IsNullOrEmpty(password),
+                        cancellationToken);
                 }
-                catch (InvalidDataException exception)
+                catch (SharpZipBaseException exception)
                 {
                     throw new SazImportException(
-                        "The selected file is not a supported unencrypted SAZ archive.",
+                        "The selected file is not a supported SAZ archive.",
                         exception);
                 }
             }
@@ -103,37 +114,56 @@ public sealed partial class SazTraceImporter : ITraceImporter
     }
 
     private async Task<IReadOnlyList<TraceSession>> ParseArchiveAsync(
-        ZipArchive archive,
+        SharpZipFile archive,
+        bool hasPassword,
         CancellationToken cancellationToken)
     {
-        if (archive.Entries.Count > _options.MaximumEntryCount)
+        if (archive.Count > _options.MaximumEntryCount)
         {
             throw new SazImportException(
                 $"The SAZ archive contains more than {_options.MaximumEntryCount:N0} files.");
         }
 
+        var entries = archive.Cast<ZipEntry>().ToArray();
+        if (!hasPassword && entries.Any(entry => entry.IsCrypted))
+        {
+            throw new SazPasswordRequiredException();
+        }
+
         long expandedSize = 0;
         var sessionFiles = new Dictionary<int, SessionFiles>();
 
-        foreach (var entry in archive.Entries)
+        foreach (var entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ValidateEntryPath(entry.FullName);
+            ValidateEntryPath(entry.Name);
 
-            expandedSize = checked(expandedSize + entry.Length);
+            if (!entry.CanDecompress)
+            {
+                throw new SazImportException(
+                    $"SAZ entry '{entry.Name}' uses an unsupported encryption or compression method.");
+            }
+
+            if (entry.Size < 0)
+            {
+                throw new SazImportException(
+                    $"SAZ entry '{entry.Name}' does not declare its expanded size.");
+            }
+
+            expandedSize = checked(expandedSize + entry.Size);
             if (expandedSize > _options.MaximumExpandedSize)
             {
                 throw new SazImportException(
                     $"The expanded SAZ archive exceeds the {_options.MaximumExpandedSize / (1024 * 1024)} MB limit.");
             }
 
-            if (entry.Length > _options.MaximumSessionFileSize)
+            if (entry.Size > _options.MaximumSessionFileSize)
             {
                 throw new SazImportException(
-                    $"SAZ entry '{entry.FullName}' exceeds the per-file size limit.");
+                    $"SAZ entry '{entry.Name}' exceeds the per-file size limit.");
             }
 
-            var match = SessionFilePattern().Match(NormalizeEntryPath(entry.FullName));
+            var match = SessionFilePattern().Match(NormalizeEntryPath(entry.Name));
             if (!match.Success
                 || !int.TryParse(
                     match.Groups["id"].Value,
@@ -174,6 +204,7 @@ public sealed partial class SazTraceImporter : ITraceImporter
             }
 
             sessions.Add(await ParseSessionAsync(
+                archive,
                 pair.Key,
                 pair.Value,
                 cancellationToken));
@@ -189,26 +220,37 @@ public sealed partial class SazTraceImporter : ITraceImporter
     }
 
     private async Task<TraceSession> ParseSessionAsync(
+        SharpZipFile archive,
         int sessionId,
         SessionFiles files,
         CancellationToken cancellationToken)
     {
         var metadata = files.Metadata is null
             ? SazMetadata.Empty
-            : ParseMetadata(await ReadEntryBytesAsync(files.Metadata, cancellationToken));
+            : ParseMetadata(await ReadEntryBytesAsync(
+                archive,
+                files.Metadata,
+                cancellationToken));
 
         var request = ParseRequest(
-            await ReadEntryBytesAsync(files.Request!, cancellationToken),
+            await ReadEntryBytesAsync(
+                archive,
+                files.Request!,
+                cancellationToken),
             metadata);
 
         var response = files.Response is null
             ? ParsedResponse.Empty
-            : ParseResponse(await ReadEntryBytesAsync(files.Response, cancellationToken));
+            : ParseResponse(await ReadEntryBytesAsync(
+                archive,
+                files.Response,
+                cancellationToken));
 
         return new TraceSession
         {
             Id = sessionId,
-            StartedAt = metadata.StartedAt ?? files.Request!.LastWriteTime,
+            StartedAt = metadata.StartedAt
+                ?? new DateTimeOffset(files.Request!.DateTime),
             Method = request.Method,
             Url = request.Url,
             StatusCode = response.StatusCode,
@@ -580,19 +622,20 @@ public sealed partial class SazTraceImporter : ITraceImporter
     }
 
     private async Task<byte[]> ReadEntryBytesAsync(
-        ZipArchiveEntry entry,
+        SharpZipFile archive,
+        ZipEntry entry,
         CancellationToken cancellationToken)
     {
-        if (entry.Length > _options.MaximumSessionFileSize)
+        if (entry.Size > _options.MaximumSessionFileSize)
         {
             throw new SazImportException(
-                $"SAZ entry '{entry.FullName}' exceeds the per-file size limit.");
+                $"SAZ entry '{entry.Name}' exceeds the per-file size limit.");
         }
 
         try
         {
-            await using var entryStream = entry.Open();
-            using var output = new MemoryStream((int)entry.Length);
+            await using var entryStream = archive.GetInputStream(entry);
+            using var output = new MemoryStream((int)entry.Size);
             await CopyWithLimitAsync(
                 entryStream,
                 output,
@@ -600,10 +643,14 @@ public sealed partial class SazTraceImporter : ITraceImporter
                 cancellationToken);
             return output.ToArray();
         }
-        catch (InvalidDataException exception)
+        catch (SharpZipBaseException exception) when (entry.IsCrypted)
+        {
+            throw new SazInvalidPasswordException(exception);
+        }
+        catch (SharpZipBaseException exception)
         {
             throw new SazImportException(
-                $"SAZ entry '{entry.FullName}' is encrypted or uses an unsupported compression method.",
+                $"SAZ entry '{entry.Name}' uses an unsupported compression method.",
                 exception);
         }
     }
@@ -775,11 +822,11 @@ public sealed partial class SazTraceImporter : ITraceImporter
 
     private sealed class SessionFiles
     {
-        public ZipArchiveEntry? Request { get; set; }
+        public ZipEntry? Request { get; set; }
 
-        public ZipArchiveEntry? Response { get; set; }
+        public ZipEntry? Response { get; set; }
 
-        public ZipArchiveEntry? Metadata { get; set; }
+        public ZipEntry? Metadata { get; set; }
     }
 
     private sealed record SazMetadata(

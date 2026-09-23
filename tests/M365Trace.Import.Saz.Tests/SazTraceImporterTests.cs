@@ -1,6 +1,9 @@
 using System.IO.Compression;
 using System.Text;
+using M365Trace.Core;
 using M365Trace.Import.Saz;
+using SharpZipEntry = ICSharpCode.SharpZipLib.Zip.ZipEntry;
+using SharpZipOutputStream = ICSharpCode.SharpZipLib.Zip.ZipOutputStream;
 
 namespace M365Trace.Import.Saz.Tests;
 
@@ -134,6 +137,45 @@ public sealed class SazTraceImporterTests
             session.ResponseContent?.Base64Data);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(128)]
+    [InlineData(256)]
+    public async Task ImportAsync_EncryptedSaz_DecryptsSupportedEncryption(
+        int aesKeySize)
+    {
+        const string password = "P@ss# word&<>\"'";
+        await using var stream = CreateEncryptedArchive(password, aesKeySize);
+
+        var session = Assert.Single(
+            await new SazTraceImporter().ImportAsync(
+                stream,
+                new TraceImportOptions { Password = password }));
+
+        Assert.Equal("http://example.test/encrypted", session.Url.AbsoluteUri);
+        Assert.Equal("decrypted body", session.ResponseContent?.Text);
+    }
+
+    [Fact]
+    public async Task ImportAsync_EncryptedSazWithoutPassword_RequestsPassword()
+    {
+        await using var stream = CreateEncryptedArchive("secret", 256);
+
+        await Assert.ThrowsAsync<SazPasswordRequiredException>(
+            () => new SazTraceImporter().ImportAsync(stream));
+    }
+
+    [Fact]
+    public async Task ImportAsync_EncryptedSazWithWrongPassword_RejectsPassword()
+    {
+        await using var stream = CreateEncryptedArchive("secret", 256);
+
+        await Assert.ThrowsAsync<SazInvalidPasswordException>(
+            () => new SazTraceImporter().ImportAsync(
+                stream,
+                new TraceImportOptions { Password = "incorrect" }));
+    }
+
     [Fact]
     public async Task ImportAsync_ArchiveWithoutRawSessions_ThrowsUsefulError()
     {
@@ -168,6 +210,58 @@ public sealed class SazTraceImporterTests
 
         stream.Position = 0;
         return stream;
+    }
+
+    private static MemoryStream CreateEncryptedArchive(
+        string password,
+        int aesKeySize)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new SharpZipOutputStream(stream)
+        {
+            IsStreamOwner = false,
+            Password = password
+        })
+        {
+            AddEncryptedEntry(
+                archive,
+                "raw/1_c.txt",
+                "GET /encrypted HTTP/1.1\r\n"
+                + "Host: example.test\r\n"
+                + "\r\n",
+                aesKeySize);
+            AddEncryptedEntry(
+                archive,
+                "raw/1_s.txt",
+                "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: text/plain; charset=utf-8\r\n"
+                + "\r\n"
+                + "decrypted body",
+                aesKeySize);
+            archive.Finish();
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+
+    private static void AddEncryptedEntry(
+        SharpZipOutputStream archive,
+        string path,
+        string content,
+        int aesKeySize)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        var entry = new SharpZipEntry(path)
+        {
+            AESKeySize = aesKeySize,
+            DateTime = new DateTime(2026, 9, 23, 12, 0, 0),
+            Size = bytes.Length
+        };
+
+        archive.PutNextEntry(entry);
+        archive.Write(bytes);
+        archive.CloseEntry();
     }
 
     private static void AddBasicSession(

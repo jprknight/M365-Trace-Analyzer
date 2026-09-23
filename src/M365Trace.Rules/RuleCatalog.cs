@@ -37,6 +37,12 @@ public sealed class RuleCatalog
                 "The ruleset manifest must declare at least one supported session classification.");
         }
 
+        if (Manifest.SchemaVersion <= 0)
+        {
+            throw new InvalidDataException(
+                "The ruleset manifest must declare a positive schema version.");
+        }
+
         var invalidId = Rules.FirstOrDefault(rule =>
             string.IsNullOrWhiteSpace(rule.Id)
             || !rule.Id.StartsWith("M365.", StringComparison.Ordinal));

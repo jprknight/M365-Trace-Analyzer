@@ -43,6 +43,7 @@ public sealed class HarTraceImporter : ITraceImporter
 
     public async Task<IReadOnlyList<TraceSession>> ImportAsync(
         Stream stream,
+        TraceImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);

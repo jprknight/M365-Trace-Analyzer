@@ -1,14 +1,13 @@
 @page "/"
 @inject IEnumerable<ITraceImporter> TraceImporters
 @inject TraceAnalysisEngine AnalysisEngine
-@inject RuleCatalog RuleCatalog
 @inject M365Trace.Web.Services.VersionUpdateService VersionUpdateService
 
 <PageTitle>M365 Trace Analyzer</PageTitle>
 
 <header class="app-header">
     <div>
-        <p class="eyebrow">Microsoft 365 diagnostics</p>
+        <p class="eyebrow">M365 Diagnostics</p>
         <h1>M365 Trace Analyzer</h1>
         <p class="subtitle">Analyze HTTP Archive files locally. Trace data is processed by this application and is not uploaded to an external service.</p>
     </div>
@@ -17,7 +16,6 @@
         <div class="version-card @GetVersionStatusClass()"
              title="@versionCheck?.Detail">
             <span>Version @VersionUpdateService.CurrentVersion</span>
-            <span>Ruleset @RuleCatalog.Manifest.RulesetVersion</span>
             @if (versionCheck is null)
             {
                 <strong>Checking for updates...</strong>
@@ -41,11 +39,10 @@
             {
                 <strong>@GetVersionStatusText()</strong>
             }
-            <a class="rules-link" href="/classifications">View classification coverage</a>
         </div>
 
         <label class="file-button @(isLoading ? "disabled" : null)">
-            <span>@(isLoading ? "Loading..." : "Open HAR or SAZ")</span>
+            <span>@(isLoading ? "Loading..." : "Open Trace")</span>
             <InputFile OnChange="LoadTraceAsync"
                        accept=".har,.saz,application/json,application/zip"
                        disabled="@isLoading" />
@@ -61,12 +58,45 @@
     </div>
 }
 
-@if (sessions.Count == 0 && !isLoading)
+@if (pendingFile is not null)
+{
+    <section class="password-prompt" aria-labelledby="password-prompt-heading">
+        <div>
+            <p class="eyebrow">Encrypted SAZ archive</p>
+            <h2 id="password-prompt-heading">Password required</h2>
+            <p>Enter the password for <strong>@pendingFile.Name</strong>. The password is used only to decrypt this import and is not saved.</p>
+        </div>
+        <form @onsubmit="RetryEncryptedSazAsync" @onsubmit:preventDefault>
+            <input type="password"
+                   class="password-input"
+                   placeholder="SAZ password"
+                   aria-label="SAZ archive password"
+                   autocomplete="current-password"
+                   @bind="archivePassword"
+                   @bind:event="oninput" />
+            <button type="submit"
+                    class="primary-button"
+                    disabled="@(isLoading || string.IsNullOrEmpty(archivePassword))">
+                @(isLoading ? "Opening..." : "Open archive")
+            </button>
+            <button type="button"
+                    class="secondary-action-button"
+                    disabled="@isLoading"
+                    @onclick="CancelPasswordPrompt">Cancel</button>
+        </form>
+    </section>
+}
+
+@if (sessions.Count == 0 && pendingFile is null && !isLoading)
 {
     <section class="empty-state">
-        <div class="empty-icon">TRACE</div>
+        <label class="file-button empty-file-button">
+            <span>Open Trace</span>
+            <InputFile OnChange="LoadTraceAsync"
+                       accept=".har,.saz,application/json,application/zip" />
+        </label>
         <h2>Open a HAR or SAZ trace</h2>
-        <p>Select a HAR file exported from browser developer tools or an unencrypted Fiddler Session Archive.</p>
+        <p>Select a HAR file exported from browser developer tools or a Fiddler Session Archive.</p>
     </section>
 }
 else if (sessions.Count > 0)
@@ -78,11 +108,23 @@ else if (sessions.Count > 0)
                     <h2>@fileName</h2>
                     <p>@sessions.Count.ToString("N0") sessions</p>
                 </div>
-                <input class="search-box"
-                       placeholder="Filter by analysis, host, path, method, or status"
-                       @bind="filterText"
-                       @bind:event="oninput"
-                       aria-label="Filter sessions by analysis, host, path, method, or status" />
+                <div class="search-box-container">
+                    <input class="search-box"
+                           placeholder="Filter by analysis, host, path, method, or status"
+                           @bind="filterText"
+                           @bind:event="oninput"
+                           aria-label="Filter sessions by analysis, host, path, method, or status" />
+                    @if (!string.IsNullOrEmpty(filterText))
+                    {
+                        <button class="search-clear-button"
+                                type="button"
+                                title="Clear filter"
+                                aria-label="Clear filter"
+                                @onclick="ClearFilter">
+                            &times;
+                        </button>
+                    }
+                </div>
             </div>
 
             <div class="table-container">
@@ -174,7 +216,6 @@ else if (sessions.Count > 0)
                             <div class="classification-row">
                                 <span>Session type</span>
                                 <strong>@selectedSession.Analysis.SessionType</strong>
-                                <small>Confidence @selectedSession.Analysis.SessionTypeConfidence/10</small>
                             </div>
                         }
 
@@ -237,32 +278,55 @@ else if (sessions.Count > 0)
                     <div><span>Status</span><strong>@selectedSession.StatusText</strong></div>
                 </div>
 
-                <details open>
-                    <summary>Request headers (@selectedSession.RequestHeaders.Count)</summary>
-                    <div class="header-list">@RenderHeaders(selectedSession.RequestHeaders)</div>
-                </details>
+                <div class="traffic-view-selector"
+                     role="group"
+                     aria-label="Choose request and response details to display">
+                    <button type="button"
+                            class="@GetTrafficViewButtonClass(DetailTrafficView.Request)"
+                            aria-pressed="@(trafficView == DetailTrafficView.Request)"
+                            @onclick="() => trafficView = DetailTrafficView.Request">Request</button>
+                    <button type="button"
+                            class="@GetTrafficViewButtonClass(DetailTrafficView.Response)"
+                            aria-pressed="@(trafficView == DetailTrafficView.Response)"
+                            @onclick="() => trafficView = DetailTrafficView.Response">Response</button>
+                    <button type="button"
+                            class="@GetTrafficViewButtonClass(DetailTrafficView.Both)"
+                            aria-pressed="@(trafficView == DetailTrafficView.Both)"
+                            @onclick="() => trafficView = DetailTrafficView.Both">Both</button>
+                </div>
 
-                @if (selectedSession.RequestContent is not null)
-                {
-                    <details>
-                        <summary>Request body</summary>
-                        <BodyInspector @key="@($"request-{selectedSession.Id}")"
-                                       Content="selectedSession.RequestContent" />
-                    </details>
-                }
-
-                <details open>
-                    <summary>Response headers (@selectedSession.ResponseHeaders.Count)</summary>
-                    <div class="header-list">@RenderHeaders(selectedSession.ResponseHeaders)</div>
-                </details>
-
-                @if (selectedSession.ResponseContent is not null)
+                @if (trafficView != DetailTrafficView.Response)
                 {
                     <details open>
-                        <summary>Response body</summary>
-                        <BodyInspector @key="@($"response-{selectedSession.Id}")"
-                                       Content="selectedSession.ResponseContent" />
+                        <summary>Request headers (@selectedSession.RequestHeaders.Count)</summary>
+                        <div class="header-list">@RenderHeaders(selectedSession.RequestHeaders)</div>
                     </details>
+
+                    @if (selectedSession.RequestContent is not null)
+                    {
+                        <details>
+                            <summary>Request body</summary>
+                            <BodyInspector @key="@($"request-{selectedSession.Id}")"
+                                           Content="selectedSession.RequestContent" />
+                        </details>
+                    }
+                }
+
+                @if (trafficView != DetailTrafficView.Request)
+                {
+                    <details open>
+                        <summary>Response headers (@selectedSession.ResponseHeaders.Count)</summary>
+                        <div class="header-list">@RenderHeaders(selectedSession.ResponseHeaders)</div>
+                    </details>
+
+                    @if (selectedSession.ResponseContent is not null)
+                    {
+                        <details open>
+                            <summary>Response body</summary>
+                            <BodyInspector @key="@($"response-{selectedSession.Id}")"
+                                           Content="selectedSession.ResponseContent" />
+                        </details>
+                    }
                 }
             }
         </aside>
@@ -277,10 +341,14 @@ else if (sessions.Count > 0)
     private string? errorMessage;
     private string? fileName;
     private string filterText = string.Empty;
+    private string archivePassword = string.Empty;
     private bool isLoading;
+    private IBrowserFile? pendingFile;
+    private ITraceImporter? pendingImporter;
     private M365Trace.Web.Services.VersionCheckResult? versionCheck;
     private SessionSortColumn sortColumn = SessionSortColumn.Id;
     private bool sortAscending = true;
+    private DetailTrafficView trafficView = DetailTrafficView.Both;
 
     protected override async Task OnInitializedAsync()
     {
@@ -350,6 +418,11 @@ else if (sessions.Count > 0)
                 ? "ascending"
                 : "descending";
 
+    private string GetTrafficViewButtonClass(DetailTrafficView view) =>
+        trafficView == view
+            ? "traffic-view-button active"
+            : "traffic-view-button";
+
     private static bool MatchesFilter(TraceSession session, string filter)
     {
         var analysis = session.Analysis;
@@ -375,6 +448,8 @@ else if (sessions.Count > 0)
     private static bool ContainsFilter(string? value, string filter) =>
         value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true;
 
+    private void ClearFilter() => filterText = string.Empty;
+
     private async Task LoadTraceAsync(InputFileChangeEventArgs args)
     {
         isLoading = true;
@@ -382,22 +457,25 @@ else if (sessions.Count > 0)
         sessions.Clear();
         selectedSession = null;
         fileName = null;
+        archivePassword = string.Empty;
+        pendingFile = null;
+        pendingImporter = null;
+
+        var file = args.File;
+        ITraceImporter? importer = null;
 
         try
         {
-            var file = args.File;
-            var importer = TraceImporters.FirstOrDefault(candidate =>
+            importer = TraceImporters.FirstOrDefault(candidate =>
                 candidate.CanImport(file.Name))
                 ?? throw new TraceImportException(
                     "Select a supported .har or .saz trace file.");
-
-            await using var stream = file.OpenReadStream(MaximumBrowserFileSize);
-            var importedSessions = await importer.ImportAsync(stream);
-
-            sessions.AddRange(importedSessions.Select(session =>
-                session with { Analysis = AnalysisEngine.Analyze(session) }));
-            selectedSession = sessions.FirstOrDefault();
-            fileName = file.Name;
+            await ImportTraceAsync(file, importer);
+        }
+        catch (SazPasswordRequiredException)
+        {
+            pendingFile = file;
+            pendingImporter = importer!;
         }
         catch (Exception exception) when (
             exception is TraceImportException
@@ -410,6 +488,65 @@ else if (sessions.Count > 0)
         {
             isLoading = false;
         }
+    }
+
+    private async Task RetryEncryptedSazAsync()
+    {
+        if (pendingFile is null
+            || pendingImporter is null
+            || string.IsNullOrEmpty(archivePassword))
+        {
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+        var password = archivePassword;
+        archivePassword = string.Empty;
+
+        try
+        {
+            await ImportTraceAsync(
+                pendingFile,
+                pendingImporter,
+                new TraceImportOptions { Password = password });
+        }
+        catch (Exception exception) when (
+            exception is TraceImportException
+            or IOException
+            or InvalidOperationException)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ImportTraceAsync(
+        IBrowserFile file,
+        ITraceImporter importer,
+        TraceImportOptions? options = null)
+    {
+        await using var stream = file.OpenReadStream(MaximumBrowserFileSize);
+        var importedSessions = await importer.ImportAsync(stream, options);
+
+        sessions.AddRange(importedSessions.Select(session =>
+            session with { Analysis = AnalysisEngine.Analyze(session) }));
+        selectedSession = sessions.FirstOrDefault();
+        fileName = file.Name;
+        pendingFile = null;
+        pendingImporter = null;
+    }
+
+    private void CancelPasswordPrompt()
+    {
+        archivePassword = string.Empty;
+        pendingFile = null;
+        pendingImporter = null;
+        fileName = null;
+        errorMessage = null;
     }
 
     private void SelectSession(TraceSession session)
@@ -523,6 +660,13 @@ else if (sessions.Count > 0)
         Host,
         Path,
         Duration
+    }
+
+    private enum DetailTrafficView
+    {
+        Request,
+        Response,
+        Both
     }
 
     private sealed class SessionSortValueComparer : IComparer<object?>

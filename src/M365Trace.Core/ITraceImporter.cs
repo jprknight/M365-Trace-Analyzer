@@ -8,5 +8,6 @@ public interface ITraceImporter
 
     Task<IReadOnlyList<TraceSession>> ImportAsync(
         Stream stream,
+        TraceImportOptions? options = null,
         CancellationToken cancellationToken = default);
 }

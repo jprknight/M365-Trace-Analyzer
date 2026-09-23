@@ -2,7 +2,7 @@
 
 M365 Trace Analyzer is a local browser-based application for inspecting and analyzing Microsoft 365 HTTP traces.
 
-The current implementation supports opening HTTP Archive (`.har`) and unencrypted Fiddler Session Archive (`.saz`) files, viewing normalized sessions, filtering the session list, inspecting request and response headers, viewing bodies as raw text, formatted JSON, sandboxed HTML, images, or formatted XML, and running the migrated Office 365 Fiddler Extension analysis rules. Trace data is processed by the local ASP.NET Core application and is not uploaded to an external service.
+The current implementation supports opening HTTP Archive (`.har`) and encrypted or unencrypted Fiddler Session Archive (`.saz`) files, viewing normalized sessions, filtering the session list, inspecting request and response headers, viewing bodies as raw text, formatted JSON, sandboxed HTML, images, or formatted XML, and running the migrated Office 365 Fiddler Extension analysis rules. Trace data is processed by the local ASP.NET Core application and is not uploaded to an external service.
 
 ## Requirements
 
@@ -14,9 +14,26 @@ The current implementation supports opening HTTP Archive (`.har`) and unencrypte
 dotnet run --project .\src\M365Trace.Web\M365Trace.Web.csproj
 ```
 
-Keep the command running, then open `http://localhost:5120`.
+Keep the command running, then open `http://localhost:8080`.
 
-In Visual Studio Code, open **Run and Debug**, select **Run M365 Trace Analyzer**, and press `F5`. The checked-in launch configuration builds the web project, starts it on port 5120, and opens the browser automatically.
+The application defaults to `http://localhost:8080`. To use another available port, pass an explicit local URL:
+
+```powershell
+dotnet run `
+  --project .\src\M365Trace.Web\M365Trace.Web.csproj `
+  -- `
+  --urls "http://localhost:9090"
+```
+
+For a published package:
+
+```powershell
+.\M365Trace.Web.exe --urls "http://localhost:9090"
+```
+
+Keep the host set to `localhost` so the analyzer is not exposed to other computers on the network.
+
+In Visual Studio Code, open **Run and Debug**, select **Run M365 Trace Analyzer**, and press `F5`. The checked-in launch configuration builds the web project, starts it on port 8080, and opens the browser automatically.
 
 ## Versioning and releases
 
@@ -60,13 +77,13 @@ dotnet test .\M365-Trace-Analyzer.sln
 ## Supported trace files
 
 - HAR 1.x JSON exported from browser developer tools
-- Unencrypted SAZ archives containing `raw/*_c.txt`, `*_s.txt`, and optional `*_m.xml` files
+- Encrypted or unencrypted SAZ archives containing `raw/*_c.txt`, `*_s.txt`, and optional `*_m.xml` files
 
-Password-protected or encrypted SAZ archives are rejected with an explicit error. SAZ imports enforce compressed-file, expanded-size, entry-count, per-session-file, and decompressed-body limits.
+Password-protected SAZ archives support traditional ZipCrypto plus AES-128 and AES-256 encryption. Passwords are used only for the current import and are not stored. SAZ imports enforce compressed-file, expanded-size, entry-count, per-session-file, and decompressed-body limits.
 
 ## Migrated rules
 
-The analyzer embeds the legacy session-classification data, localized ruleset strings, and a versioned ruleset manifest. Concrete `ITraceRule` implementations are discovered automatically at startup and loaded into a validated immutable catalog. Duplicate or malformed rule IDs prevent startup rather than failing during trace analysis.
+The analyzer embeds the legacy session-classification data, localized ruleset strings, and a ruleset metadata manifest. Concrete `ITraceRule` implementations are discovered automatically at startup and loaded into a validated immutable catalog. Duplicate or malformed rule IDs prevent startup rather than failing during trace analysis.
 
 Each imported session receives a cached `SessionFacts` view containing normalized URL, host, path, headers, content type, and searchable request and response text. Rules use those facts instead of repeatedly rebuilding the same values.
 
@@ -85,16 +102,12 @@ The current deterministic rule pipeline includes:
 
 Rules execute in explicit phases and deterministic order. Specialized rules take precedence over generic fallbacks, and confidence values prevent less-specific classifications from replacing stronger results.
 
-The browser displays both the application and ruleset versions. Select **View classification coverage** to see the supported classification count and the underlying technical implementation inventory.
+The browser displays the application version. See [Classification coverage](CLASSIFICATION-COVERAGE.md) for the included classification count, internal schema version, and technical implementation inventory.
 
 Several clearly unreachable legacy predicates were implemented according to their apparent intent and covered by regression tests. This includes Exchange Online HTTP 401 Autodiscover host matching, attachment classification before generic OWA handling, specialized HTTP 0 handling, and accepting either known Outlook Microsoft 365 host for general classification.
 
 HAR does not normally contain Fiddler process names, server/client IP addresses, TLS tunnel details, or detailed server timing. Rules that require those fields are not guessed. SAZ metadata coverage can be expanded as those values are added to the normalized trace model.
 
-## Planned work
+## Roadmap
 
-1. Add severity filters and report export.
-2. Expand SAZ metadata and legacy session-flag compatibility.
-3. Add process, IP, TLS, and detailed timing fields to the normalized model when present in the source trace.
-4. Package the local web host as a self-contained executable.
-5. Add an optional MCP interface over the tested analysis engine.
+See the [support-engineering roadmap](SUPPORT-ENGINEERING-ROADMAP.md) for the prioritized trace-analysis, reporting, metadata, performance, and investigation-workflow plan.
