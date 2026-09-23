@@ -32,6 +32,28 @@ public sealed class BodyInspectorTests : IDisposable
     }
 
     [Fact]
+    public void BomPrefixedJson_EnablesFormattedJsonView()
+    {
+        var content = new TraceContent(
+            "\uFEFF{\"status\":\"ok\"}",
+            "application/json",
+            18,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        var jsonButton = component.FindAll("button")
+            .Single(button => button.TextContent == "JSON");
+        Assert.False(jsonButton.HasAttribute("disabled"));
+
+        jsonButton.Click();
+
+        Assert.Contains("\"status\": \"ok\"", component.Find("pre").TextContent);
+    }
+
+    [Fact]
     public void InvalidJson_DisablesFormattedJsonView()
     {
         var content = new TraceContent(
