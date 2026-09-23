@@ -73,6 +73,67 @@ public sealed class BodyInspectorTests : IDisposable
     }
 
     [Fact]
+    public void JsonCommentsAndTrailingCommas_AreFormatted()
+    {
+        var content = new TraceContent(
+            """{/* diagnostic */"status":"ok",}""",
+            "application/json",
+            34,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        component.FindAll("button")
+            .Single(button => button.TextContent == "JSON")
+            .Click();
+
+        Assert.Contains("\"status\": \"ok\"", component.Find("pre").TextContent);
+    }
+
+    [Fact]
+    public void StandardXml_IsFormatted()
+    {
+        var content = new TraceContent(
+            "<root><value>diagnostic</value></root>",
+            "application/xml",
+            38,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        component.FindAll("button")
+            .Single(button => button.TextContent == "XML")
+            .Click();
+
+        var formattedXml = component.Find("pre").TextContent;
+        Assert.Contains("\n", formattedXml, StringComparison.Ordinal);
+        Assert.Contains("<value>diagnostic</value>", formattedXml);
+    }
+
+    [Fact]
+    public void XmlDocumentType_IsRejected()
+    {
+        var content = new TraceContent(
+            """<!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///secret">]><root>&xxe;</root>""",
+            "application/xml",
+            73,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        var xmlButton = component.FindAll("button")
+            .Single(button => button.TextContent == "XML");
+
+        Assert.True(xmlButton.HasAttribute("disabled"));
+    }
+
+    [Fact]
     public void ExchangeXmlWithInvalidCharacterReference_EnablesFormattedXmlView()
     {
         var content = new TraceContent(
@@ -149,6 +210,71 @@ public sealed class BodyInspectorTests : IDisposable
             "default-src 'none'",
             frame.GetAttribute("srcdoc"),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NonHtmlContent_DisablesHtmlPreview()
+    {
+        var content = new TraceContent(
+            "plain diagnostic text",
+            "text/plain",
+            21,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        var htmlButton = component.FindAll("button")
+            .Single(button => button.TextContent == "HTML");
+
+        Assert.True(htmlButton.HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void SupportedImage_UsesDataUriPreview()
+    {
+        var content = new TraceContent(
+            null,
+            "image/png",
+            4,
+            true,
+            false,
+            "iVBORw==");
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        component.FindAll("button")
+            .Single(button => button.TextContent == "Image")
+            .Click();
+
+        Assert.Equal(
+            "data:image/png;base64,iVBORw==",
+            component.Find("img").GetAttribute("src"));
+    }
+
+    [Fact]
+    public void UnsupportedBinaryContent_ExplainsWhyItCannotBeDisplayed()
+    {
+        var content = new TraceContent(
+            null,
+            "application/octet-stream",
+            4,
+            true,
+            false,
+            null);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        Assert.Contains(
+            "Binary Base64 content is not displayed.",
+            component.Find("pre").TextContent);
+        Assert.True(
+            component.FindAll("button")
+                .Single(button => button.TextContent == "Image")
+                .HasAttribute("disabled"));
     }
 
     [Fact]
