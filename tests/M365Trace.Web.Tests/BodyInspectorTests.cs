@@ -73,6 +73,55 @@ public sealed class BodyInspectorTests : IDisposable
     }
 
     [Fact]
+    public void ExchangeXmlWithInvalidCharacterReference_EnablesFormattedXmlView()
+    {
+        var content = new TraceContent(
+            """<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body><t:Value>&#xFFFE;</t:Value></s:Body></s:Envelope>""",
+            "text/xml",
+            250,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        var xmlButton = component.FindAll("button")
+            .Single(button => button.TextContent == "XML");
+        Assert.False(xmlButton.HasAttribute("disabled"));
+
+        xmlButton.Click();
+
+        var formattedXml = component.Find("pre").TextContent;
+        Assert.Contains(
+            "<t:Value>&amp;#xFFFE;</t:Value>",
+            formattedXml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\n",
+            formattedXml,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MalformedXml_DisablesFormattedXmlView()
+    {
+        var content = new TraceContent(
+            "<root><unclosed></root>",
+            "text/xml",
+            23,
+            false,
+            false);
+
+        var component = _context.Render<BodyInspector>(
+            parameters => parameters.Add(item => item.Content, content));
+
+        var xmlButton = component.FindAll("button")
+            .Single(button => button.TextContent == "XML");
+
+        Assert.True(xmlButton.HasAttribute("disabled"));
+    }
+
+    [Fact]
     public void HtmlPreview_IsSandboxedAndBlocksExternalResources()
     {
         var content = new TraceContent(
