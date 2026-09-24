@@ -101,20 +101,34 @@
                              SelectionChanged="SetFindingRuleIdsAsync"
                              UseCodeLabels="true" />
 
-            <label class="filter-select-label">
-                <span>Findings</span>
-                <select aria-label="Finding presence filter"
-                        value="@GetFindingValue()"
-                        @onchange="SetFindingFilterAsync">
-                    <option value="">Any</option>
-                    <option value="@SessionFindingFilter.HasFindings">
+            <details class="filter-menu" data-filter-menu="findings">
+                <summary>
+                    Findings @FormatCount(Query.Findings is null ? 0 : 1)
+                </summary>
+                <div class="filter-menu-content">
+                    <label>
+                        <input type="radio"
+                               name="findings-filter"
+                               checked="@(Query.Findings is null)"
+                               @onchange="() => SetFindingFilterAsync(null)" />
+                        Any
+                    </label>
+                    <label>
+                        <input type="radio"
+                               name="findings-filter"
+                               checked="@(Query.Findings == SessionFindingFilter.HasFindings)"
+                               @onchange="() => SetFindingFilterAsync(SessionFindingFilter.HasFindings)" />
                         Has findings
-                    </option>
-                    <option value="@SessionFindingFilter.NoFindings">
+                    </label>
+                    <label>
+                        <input type="radio"
+                               name="findings-filter"
+                               checked="@(Query.Findings == SessionFindingFilter.NoFindings)"
+                               @onchange="() => SetFindingFilterAsync(SessionFindingFilter.NoFindings)" />
                         No findings
-                    </option>
-                </select>
-            </label>
+                    </label>
+                </div>
+            </details>
         </div>
 
         <div class="filter-result-count">
@@ -295,16 +309,8 @@
     private Task SetDurationAsync(SessionDurationFilter? duration) =>
         QueryChanged.InvokeAsync(Query with { Duration = duration });
 
-    private Task SetFindingFilterAsync(ChangeEventArgs args)
-    {
-        var value = args.Value?.ToString();
-        var findings = Enum.TryParse<SessionFindingFilter>(
-            value,
-            out var parsed)
-                ? parsed
-                : (SessionFindingFilter?)null;
-        return QueryChanged.InvokeAsync(Query with { Findings = findings });
-    }
+    private Task SetFindingFilterAsync(SessionFindingFilter? findings) =>
+        QueryChanged.InvokeAsync(Query with { Findings = findings });
 
     private Task RemoveFilterAsync(FilterCategory category)
     {
@@ -330,9 +336,6 @@
         };
         return QueryChanged.InvokeAsync(query);
     }
-
-    private string GetFindingValue() =>
-        Query.Findings?.ToString() ?? string.Empty;
 
     private static IReadOnlyList<T> Toggle<T>(
         IReadOnlyList<T> values,

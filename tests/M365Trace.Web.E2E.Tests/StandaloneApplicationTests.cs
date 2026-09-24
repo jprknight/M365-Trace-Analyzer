@@ -71,6 +71,10 @@ public sealed class StandaloneApplicationTests
                 "details[data-filter-menu=status]");
             var durationMenu = page.Locator(
                 "details[data-filter-menu=duration]");
+            var findingsMenu = page.Locator(
+                "details[data-filter-menu=findings]");
+            var ruleMenu = page.Locator(
+                "details[data-filter-menu=finding-rule]");
             await severityMenu.Locator("summary").ClickAsync();
             Assert.NotNull(await severityMenu.GetAttributeAsync("open"));
 
@@ -87,14 +91,30 @@ public sealed class StandaloneApplicationTests
             var durationBounds = await durationMenu
                 .Locator("summary")
                 .BoundingBoxAsync();
+            var findingsBounds = await findingsMenu
+                .Locator("summary")
+                .BoundingBoxAsync();
+            var ruleBounds = await ruleMenu
+                .Locator("summary")
+                .BoundingBoxAsync();
             Assert.NotNull(menuBounds);
             Assert.NotNull(durationBounds);
+            Assert.NotNull(findingsBounds);
+            Assert.NotNull(ruleBounds);
             Assert.InRange(
                 Math.Abs(menuBounds.Y - durationBounds.Y),
                 0,
                 0.5);
             Assert.InRange(
                 Math.Abs(menuBounds.Height - durationBounds.Height),
+                0,
+                0.5);
+            Assert.InRange(
+                Math.Abs(ruleBounds.Y - findingsBounds.Y),
+                0,
+                0.5);
+            Assert.InRange(
+                Math.Abs(menuBounds.Height - findingsBounds.Height),
                 0,
                 0.5);
 
