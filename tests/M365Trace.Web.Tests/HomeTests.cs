@@ -4,6 +4,7 @@ using Bunit;
 using M365Trace.Core;
 using M365Trace.Import.Saz;
 using M365Trace.Rules;
+using M365Trace.Web.Components;
 using M365Trace.Web.Components.Pages;
 using M365Trace.Web.Services;
 using Microsoft.AspNetCore.Components.Forms;
@@ -52,6 +53,8 @@ public sealed class HomeTests : IDisposable
 
         component.WaitForAssertion(() =>
         {
+            Assert.NotNull(component.FindComponent<SessionTable>());
+            Assert.NotNull(component.FindComponent<SessionDetailPanel>());
             Assert.Contains("sample.har", component.Markup);
             Assert.Contains("3 sessions", component.Markup);
             Assert.Equal("1", component.Find("tbody tr.selected td").TextContent);

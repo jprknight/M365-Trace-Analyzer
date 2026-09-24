@@ -1,0 +1,143 @@
+<div class="session-panel">
+    <div class="panel-heading">
+        <div>
+            <h2>@FileName</h2>
+            <p>@TotalSessionCount.ToString("N0") sessions</p>
+        </div>
+        <div class="search-box-container">
+            <input class="search-box"
+                   value="@FilterText"
+                   @oninput="HandleFilterInputAsync"
+                   placeholder="Filter by analysis, host, path, method, or status"
+                   aria-label="Filter sessions by analysis, host, path, method, or status" />
+            @if (!string.IsNullOrEmpty(FilterText))
+            {
+                <button class="search-clear-button"
+                        type="button"
+                        title="Clear filter"
+                        aria-label="Clear filter"
+                        @onclick="FilterCleared">
+                    &times;
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table class="session-table">
+            <thead>
+                <tr>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Id)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Id)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Id)">#</button>
+                    </th>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Analysis)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Analysis)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Analysis)">Analysis</button>
+                    </th>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Status)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Status)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Status)">Status</button>
+                    </th>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Method)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Method)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Method)">Method</button>
+                    </th>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Host)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Host)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Host)">Host</button>
+                    </th>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Path)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Path)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Path)">Path</button>
+                    </th>
+                    <th aria-sort="@GetAriaSort(SessionSortColumn.Duration)">
+                        <button type="button"
+                                class="@GetSortButtonClass(SessionSortColumn.Duration)"
+                                @onclick="() => SortChanged.InvokeAsync(SessionSortColumn.Duration)">Duration</button>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var session in Sessions)
+                {
+                    <tr class="@(SelectedSessionId == session.Id ? "selected" : null)"
+                        @onclick="() => SessionSelected.InvokeAsync(session)">
+                        <td>@session.Id</td>
+                        <td>
+                            <span class="severity-badge @TraceDisplayFormatter.GetSeverityClass(session.Analysis.Severity)">
+                                @TraceDisplayFormatter.GetSeverityLabel(session.Analysis.Severity)
+                            </span>
+                        </td>
+                        <td>
+                            <span class="status-code @TraceDisplayFormatter.GetStatusClass(session.StatusCode)">
+                                @session.StatusCode
+                            </span>
+                        </td>
+                        <td><span class="method">@session.Method</span></td>
+                        <td>@session.Url.Host</td>
+                        <td class="path-cell"
+                            title="@session.Url.PathAndQuery">@session.Url.PathAndQuery</td>
+                        <td>@TraceDisplayFormatter.FormatDuration(session.Duration)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string? FileName { get; set; }
+
+    [Parameter]
+    public int TotalSessionCount { get; set; }
+
+    [Parameter, EditorRequired]
+    public required IReadOnlyList<TraceSession> Sessions { get; set; }
+
+    [Parameter]
+    public int? SelectedSessionId { get; set; }
+
+    [Parameter]
+    public string FilterText { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> FilterTextChanged { get; set; }
+
+    [Parameter]
+    public SessionSortColumn SortColumn { get; set; } = SessionSortColumn.Id;
+
+    [Parameter]
+    public bool SortAscending { get; set; } = true;
+
+    [Parameter]
+    public EventCallback FilterCleared { get; set; }
+
+    [Parameter]
+    public EventCallback<SessionSortColumn> SortChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<TraceSession> SessionSelected { get; set; }
+
+    private Task HandleFilterInputAsync(ChangeEventArgs args) =>
+        FilterTextChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+
+    private string GetSortButtonClass(SessionSortColumn column) =>
+        SortColumn == column
+            ? $"sort-button active {(SortAscending ? "ascending" : "descending")}"
+            : "sort-button";
+
+    private string GetAriaSort(SessionSortColumn column) =>
+        SortColumn != column
+            ? "none"
+            : SortAscending
+                ? "ascending"
+                : "descending";
+}

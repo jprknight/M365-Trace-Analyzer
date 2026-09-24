@@ -43,7 +43,7 @@ The remaining gaps are less about basic file viewing and more about helping a su
 
 ## Roadmap
 
-### Implementation status — September 23, 2026
+### Implementation status — September 24, 2026
 
 Status markers in this document apply only where the complete listed outcome has been delivered:
 
@@ -60,6 +60,7 @@ No Phase 1, Phase 2, or Phase 3 feature set is complete yet. Work completed sinc
 - XML display now handles diagnostic responses containing prohibited numeric character references without altering Raw content.
 - JSON display now handles a leading UTF-8 BOM without altering Raw content.
 - Phase 1 foundation now separates immutable session query state, filtering, sorting, selection, and visible-session navigation from `Home.razor` into unit-tested services without changing the current UI.
+- The Fiddler-style workspace presentation is split into focused `SessionTable` and `SessionDetailPanel` components while `Home.razor` remains the import and composition root.
 - A collapsible trace summary now reports trace timing, severity and HTTP status distributions, findings, slow sessions, failing hosts, high-impact rule IDs, slowest sessions, and authentication classifications.
 
 ### Phase 1 — Support-engineer triage essentials
@@ -295,7 +296,7 @@ The JSON schema must be deterministic so it can support future CLI or MCP consum
 ### Phase 1 implementation sequence
 
 1. [x] Extract and test the session query/filter/sort behavior from `Home.razor`.
-2. Introduce workspace state and split the large page into focused components without intentionally changing behavior.
+2. [x] Introduce workspace state and split the large page into focused components without intentionally changing behavior.
 3. [x] Add the trace summary service and summary panel.
 4. Add structured filters, active chips, counts, and summary drill-through.
 5. Add previous/next navigation, diagnostic-header emphasis, and clipboard actions.
