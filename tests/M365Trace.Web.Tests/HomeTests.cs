@@ -17,7 +17,6 @@ public sealed class HomeTests : IDisposable
     private readonly BunitContext _context = new();
     private readonly StubTraceImporter _importer = new();
     private readonly StubHttpMessageHandler _httpHandler = new();
-    private readonly StubClipboardService _clipboard = new();
 
     public HomeTests()
     {
@@ -30,8 +29,6 @@ public sealed class HomeTests : IDisposable
         _context.Services.AddSingleton<SessionQueryService>();
         _context.Services.AddSingleton<TraceSummaryService>();
         _context.Services.AddSingleton<DiagnosticHeaderService>();
-        _context.Services.AddSingleton<SessionCopyFormatter>();
-        _context.Services.AddSingleton<IClipboardService>(_clipboard);
     }
 
     [Fact]
@@ -63,6 +60,38 @@ public sealed class HomeTests : IDisposable
             Assert.Contains("3 sessions", component.Markup);
             Assert.Equal("1", component.Find("tbody tr.selected td").TextContent);
             Assert.Contains("GET outlook.office.com", component.Markup);
+        });
+    }
+
+    [Fact]
+    public void SessionWorkspace_ExposesKeyboardAccessibilitySemantics()
+    {
+        var component = RenderAndLoad();
+
+        component.WaitForAssertion(() =>
+        {
+            var grid = component.Find("table[data-session-grid]");
+            Assert.Equal("grid", grid.GetAttribute("role"));
+            Assert.Equal("Trace sessions", grid.GetAttribute("aria-label"));
+            Assert.Equal(
+                "session-grid-instructions",
+                grid.GetAttribute("aria-describedby"));
+
+            var rows = component.FindAll("tbody tr[data-session-row]");
+            Assert.Equal(3, rows.Count);
+            Assert.Equal("0", rows[0].GetAttribute("tabindex"));
+            Assert.Equal("true", rows[0].GetAttribute("aria-selected"));
+            Assert.Equal("-1", rows[1].GetAttribute("tabindex"));
+            Assert.Equal("false", rows[1].GetAttribute("aria-selected"));
+            Assert.Contains(
+                "Session 1, Normal, HTTP 200",
+                rows[0].GetAttribute("aria-label"));
+
+            var detailPanel = component.Find("[data-session-detail]");
+            Assert.Equal("0", detailPanel.GetAttribute("tabindex"));
+            Assert.Equal(
+                "Session 1 details for GET outlook.office.com",
+                detailPanel.GetAttribute("aria-label"));
         });
     }
 
@@ -265,6 +294,50 @@ public sealed class HomeTests : IDisposable
             Assert.Equal([expectedSessionId], GetVisibleSessionIds(component)));
     }
 
+    [Theory]
+    [InlineData("X-Search-Request")]
+    [InlineData("request-header-value")]
+    [InlineData("response body search marker")]
+    public void SessionSearch_MatchesHeadersAndBodiesAfterDebounce(string search)
+    {
+        _importer.Sessions =
+        [
+            CreateSession(
+                1,
+                "POST",
+                "https://example.test/search",
+                200,
+                "OK",
+                50,
+                requestHeaders:
+                [
+                    new TraceHeader(
+                        "X-Search-Request",
+                        "request-header-value")
+                ],
+                responseContent: new TraceContent(
+                    "Response body search marker",
+                    "text/plain",
+                    27,
+                    false,
+                    false)),
+            CreateSession(
+                2,
+                "GET",
+                "https://example.test/other",
+                200,
+                "OK",
+                50)
+        ];
+        var component = RenderAndLoad();
+
+        component.Find("input.search-box").Input(search);
+
+        component.WaitForAssertion(
+            () => Assert.Equal([1], GetVisibleSessionIds(component)),
+            TimeSpan.FromSeconds(1));
+    }
+
     [Fact]
     public void StructuredFilters_CombineAcrossCategoriesAndRenderChips()
     {
@@ -430,45 +503,12 @@ public sealed class HomeTests : IDisposable
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal("3", component.Find("tbody tr.selected td").TextContent);
+            var selectedRow = component.Find("tbody tr.selected");
+            Assert.Equal("3", selectedRow.QuerySelector("td")?.TextContent);
+            Assert.Equal("0", selectedRow.GetAttribute("tabindex"));
+            Assert.Equal("true", selectedRow.GetAttribute("aria-selected"));
             Assert.Contains("DELETE graph.microsoft.com", component.Markup);
             Assert.Contains("Unauthorized", component.Markup);
-        });
-    }
-
-    [Fact]
-    public void MatchingSessionNavigation_StaysWithinFilteredResults()
-    {
-        var component = RenderAndLoad();
-
-        SelectFilterOption(component, "severity", "Severe");
-        SelectFilterOption(component, "severity", "Warning");
-
-        component.WaitForAssertion(() =>
-        {
-            Assert.Equal([2, 3], GetVisibleSessionIds(component));
-            Assert.Equal("2", component.Find("tbody tr.selected td").TextContent);
-            Assert.True(component
-                .Find("button[data-session-navigation='previous']")
-                .HasAttribute("disabled"));
-            Assert.False(component
-                .Find("button[data-session-navigation='next']")
-                .HasAttribute("disabled"));
-        });
-
-        component
-            .Find("button[data-session-navigation='next']")
-            .Click();
-
-        component.WaitForAssertion(() =>
-        {
-            Assert.Equal("3", component.Find("tbody tr.selected td").TextContent);
-            Assert.False(component
-                .Find("button[data-session-navigation='previous']")
-                .HasAttribute("disabled"));
-            Assert.True(component
-                .Find("button[data-session-navigation='next']")
-                .HasAttribute("disabled"));
         });
     }
 
@@ -517,72 +557,6 @@ public sealed class HomeTests : IDisposable
     }
 
     [Fact]
-    public void CopyActions_ReportSuccessAndIncludeTruncationWarning()
-    {
-        _importer.Sessions =
-        [
-            CreateSession(
-                1,
-                "GET",
-                "https://example.test/copy",
-                200,
-                "OK",
-                50,
-                responseContent: new TraceContent(
-                    "partial response",
-                    "text/plain",
-                    500,
-                    false,
-                    true))
-        ];
-
-        var component = RenderAndLoad();
-
-        component.Find("button[data-copy-action='url']").Click();
-
-        component.WaitForAssertion(() =>
-        {
-            Assert.Equal(
-                "https://example.test/copy",
-                _clipboard.LastText);
-            Assert.Equal(
-                "URL copied.",
-                component.Find(".copy-status.success").TextContent);
-        });
-
-        component
-            .Find("button[data-copy-action='response-body']")
-            .Click();
-
-        component.WaitForAssertion(() =>
-        {
-            Assert.Contains("partial response", _clipboard.LastText);
-            Assert.Contains(
-                "[Content truncated during import.]",
-                _clipboard.LastText);
-            Assert.Equal(
-                "Response body copied with a truncation warning.",
-                component.Find(".copy-status.warning").TextContent);
-        });
-    }
-
-    [Fact]
-    public void CopyFailure_IsReportedExplicitly()
-    {
-        _clipboard.Result = new ClipboardWriteResult(
-            false,
-            "Clipboard permission denied.");
-        var component = RenderAndLoad();
-
-        component.Find("button[data-copy-action='url']").Click();
-
-        component.WaitForAssertion(() =>
-            Assert.Equal(
-                "Unable to copy url. Clipboard permission denied.",
-                component.Find(".copy-status.error").TextContent));
-    }
-
-    [Fact]
     public void FindingDetails_RenderEvidenceRecommendationAndSafeLink()
     {
         var component = RenderAndLoad();
@@ -593,6 +567,9 @@ public sealed class HomeTests : IDisposable
         component.WaitForAssertion(() =>
         {
             Assert.Contains("Ruleset analysis", component.Markup);
+            Assert.Empty(component.FindAll(".analysis-heading .severity-badge"));
+            Assert.Empty(component.FindAll("[data-session-navigation]"));
+            Assert.Empty(component.FindAll("[data-copy-action]"));
             Assert.Contains("Token request failed", component.Markup);
             Assert.Contains("M365.Test.Failure", component.Markup);
             Assert.Contains("Expired token", component.Markup);
@@ -925,20 +902,6 @@ public sealed class HomeTests : IDisposable
             HttpRequestMessage request,
             CancellationToken cancellationToken) =>
             Task.FromResult(Response(request));
-    }
-
-    private sealed class StubClipboardService : IClipboardService
-    {
-        public ClipboardWriteResult Result { get; set; } =
-            ClipboardWriteResult.Success;
-
-        public string? LastText { get; private set; }
-
-        public ValueTask<ClipboardWriteResult> WriteTextAsync(string text)
-        {
-            LastText = text;
-            return ValueTask.FromResult(Result);
-        }
     }
 
     private static TraceSession CreateSession(

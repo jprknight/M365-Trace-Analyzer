@@ -77,6 +77,80 @@ public sealed class SessionQueryServiceTests
     }
 
     [Theory]
+    [InlineData("X-Client-Trace")]
+    [InlineData("HEADER-VALUE-123")]
+    [InlineData("request body marker")]
+    [InlineData("RESPONSE BODY MARKER")]
+    public void Apply_FreeTextSearchesHeadersAndDecodedBodies(string search)
+    {
+        var session = _sessions[0] with
+        {
+            RequestHeaders =
+            [
+                new TraceHeader("X-Client-Trace", "header-value-123")
+            ],
+            ResponseHeaders =
+            [
+                new TraceHeader("X-Response-Node", "node-42")
+            ],
+            RequestContent = new TraceContent(
+                "Request body marker",
+                "text/plain",
+                19,
+                false,
+                false),
+            ResponseContent = new TraceContent(
+                "Response body marker",
+                "text/plain",
+                20,
+                false,
+                false)
+        };
+
+        var result = _service.Apply(
+            [session, _sessions[1]],
+            new SessionQuery { FreeText = search });
+
+        Assert.Equal([1], result.Select(candidate => candidate.Id));
+    }
+
+    [Fact]
+    public void Apply_ContentSearchCombinesWithStructuredFilters()
+    {
+        var sessions = new[]
+        {
+            _sessions[0] with
+            {
+                ResponseContent = new TraceContent(
+                    "shared body marker",
+                    "text/plain",
+                    18,
+                    false,
+                    false)
+            },
+            _sessions[1] with
+            {
+                ResponseContent = new TraceContent(
+                    "shared body marker",
+                    "text/plain",
+                    18,
+                    false,
+                    false)
+            }
+        };
+
+        var result = _service.Apply(
+            sessions,
+            new SessionQuery
+            {
+                FreeText = "SHARED BODY",
+                StatusFamilies = [TraceStatusFamily.ServerError]
+            });
+
+        Assert.Equal([2], result.Select(session => session.Id));
+    }
+
+    [Theory]
     [InlineData(SessionSortColumn.Id, new[] { 1, 2, 3 }, new[] { 3, 2, 1 })]
     [InlineData(SessionSortColumn.Analysis, new[] { 1, 3, 2 }, new[] { 2, 3, 1 })]
     [InlineData(SessionSortColumn.Status, new[] { 1, 3, 2 }, new[] { 2, 3, 1 })]
@@ -248,28 +322,6 @@ public sealed class SessionQueryServiceTests
             });
 
         Assert.Equal([10, 20], result.Select(session => session.Id));
-    }
-
-    [Fact]
-    public void GetAdjacent_StaysWithinVisibleSessions()
-    {
-        Assert.Null(_service.GetAdjacent(_sessions, _sessions[0], -1));
-        Assert.Same(
-            _sessions[1],
-            _service.GetAdjacent(_sessions, _sessions[0], 1));
-        Assert.Same(
-            _sessions[1],
-            _service.GetAdjacent(_sessions, _sessions[2], -1));
-        Assert.Null(_service.GetAdjacent(_sessions, _sessions[2], 1));
-    }
-
-    [Fact]
-    public void GetAdjacent_ReturnsNullWhenSelectionIsNotVisible()
-    {
-        Assert.Null(_service.GetAdjacent(
-            [_sessions[0], _sessions[2]],
-            _sessions[1],
-            1));
     }
 
     private int[] GetIds(SessionQuery query) =>

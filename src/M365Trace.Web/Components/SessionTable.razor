@@ -1,3 +1,5 @@
+@implements IDisposable
+
 <div class="session-panel">
     <div class="panel-heading">
         <div>
@@ -6,11 +8,12 @@
         </div>
         <div class="search-box-container">
             <input class="search-box"
-                   value="@Query.FreeText"
-                   @oninput="HandleFilterInputAsync"
-                   placeholder="Filter by analysis, host, path, method, or status"
-                   aria-label="Filter sessions by analysis, host, path, method, or status" />
-            @if (!string.IsNullOrEmpty(Query.FreeText))
+                   type="search"
+                   value="@searchText"
+                   @oninput="HandleSearchInputAsync"
+                   placeholder="Search URLs, headers, bodies, and findings"
+                   aria-label="Search session URLs, headers, bodies, and findings" />
+            @if (!string.IsNullOrEmpty(searchText))
             {
                 <button class="search-clear-button"
                         type="button"
@@ -28,10 +31,22 @@
                     QueryChanged="QueryChanged"
                     VisibleSessionCount="Sessions.Count"
                     TotalSessionCount="TotalSessionCount"
-                    ClearAllRequested="ClearAllRequested" />
+                    ClearAllRequested="ClearAllAsync" />
+
+    <p id="session-grid-instructions" class="visually-hidden">
+        Use Up and Down Arrow keys to move between sessions, Home and End
+        to move to the first or last visible session, and Right Arrow to
+        move to the session details. Use Left Arrow from the details panel
+        to return to the selected session.
+    </p>
 
     <div class="table-container">
-        <table class="session-table">
+        <table class="session-table"
+               data-session-grid
+               role="grid"
+               aria-label="Trace sessions"
+               aria-describedby="session-grid-instructions"
+               aria-multiselectable="false">
             <thead>
                 <tr>
                     <th aria-sort="@GetAriaSort(SessionSortColumn.Id)">
@@ -86,6 +101,10 @@
                     {
                         <tr class="@(SelectedSessionId == session.Id ? "selected" : null)"
                             data-session-id="@session.Id"
+                            data-session-row
+                            tabindex="@(SelectedSessionId == session.Id ? "0" : "-1")"
+                            aria-selected="@(SelectedSessionId == session.Id ? "true" : "false")"
+                            aria-label="@GetSessionAccessibleLabel(session)"
                             @onclick="() => SessionSelected.InvokeAsync(session)">
                             <td>@session.Id</td>
                             <td>
@@ -142,14 +161,71 @@
     [Parameter]
     public EventCallback<TraceSession> SessionSelected { get; set; }
 
-    private Task HandleFilterInputAsync(ChangeEventArgs args) =>
-        QueryChanged.InvokeAsync(Query with
-        {
-            FreeText = args.Value?.ToString() ?? string.Empty
-        });
+    private const int SearchDebounceMilliseconds = 300;
 
-    private Task ClearFreeTextAsync() =>
-        QueryChanged.InvokeAsync(Query with { FreeText = string.Empty });
+    private CancellationTokenSource? searchDebounce;
+    private string searchText = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (searchDebounce is null)
+        {
+            searchText = Query.FreeText;
+        }
+    }
+
+    private async Task HandleSearchInputAsync(ChangeEventArgs args)
+    {
+        searchText = args.Value?.ToString() ?? string.Empty;
+        CancelPendingSearch();
+
+        var debounce = new CancellationTokenSource();
+        searchDebounce = debounce;
+
+        try
+        {
+            await Task.Delay(
+                SearchDebounceMilliseconds,
+                debounce.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(searchDebounce, debounce))
+        {
+            return;
+        }
+
+        searchDebounce = null;
+        debounce.Dispose();
+        await QueryChanged.InvokeAsync(Query with
+        {
+            FreeText = searchText
+        });
+    }
+
+    private async Task ClearFreeTextAsync()
+    {
+        CancelPendingSearch();
+        searchText = string.Empty;
+        await QueryChanged.InvokeAsync(Query with { FreeText = string.Empty });
+    }
+
+    private async Task ClearAllAsync()
+    {
+        CancelPendingSearch();
+        searchText = string.Empty;
+        await ClearAllRequested.InvokeAsync();
+    }
+
+    private void CancelPendingSearch()
+    {
+        searchDebounce?.Cancel();
+        searchDebounce?.Dispose();
+        searchDebounce = null;
+    }
 
     private string GetSortButtonClass(SessionSortColumn column) =>
         Query.SortColumn == column
@@ -162,4 +238,13 @@
             : Query.SortAscending
                 ? "ascending"
                 : "descending";
+
+    private static string GetSessionAccessibleLabel(TraceSession session) =>
+        $"Session {session.Id}, "
+        + $"{TraceDisplayFormatter.GetSeverityLabel(session.Analysis.Severity)}, "
+        + $"HTTP {session.StatusCode}, "
+        + $"{session.Method} {session.Url.Host}{session.Url.PathAndQuery}, "
+        + $"{TraceDisplayFormatter.FormatDuration(session.Duration)}";
+
+    public void Dispose() => CancelPendingSearch();
 }

@@ -1,8 +1,9 @@
 @inject DiagnosticHeaderService DiagnosticHeaderService
-@inject SessionCopyFormatter CopyFormatter
-@inject IClipboardService ClipboardService
 
-<aside class="detail-panel">
+<aside class="detail-panel"
+       data-session-detail
+       tabindex="0"
+       aria-label="@GetDetailPanelAriaLabel()">
     @if (Session is null)
     {
         <div class="detail-placeholder">
@@ -11,78 +12,6 @@
     }
     else
     {
-        <div class="detail-action-bar">
-            <div class="session-navigation"
-                 role="group"
-                 aria-label="Navigate matching sessions">
-                <button type="button"
-                        class="detail-action-button"
-                        disabled="@(!CanSelectPrevious)"
-                        data-session-navigation="previous"
-                        @onclick="SelectPreviousRequested">
-                    Previous match
-                </button>
-                <button type="button"
-                        class="detail-action-button"
-                        disabled="@(!CanSelectNext)"
-                        data-session-navigation="next"
-                        @onclick="SelectNextRequested">
-                    Next match
-                </button>
-            </div>
-
-            <div class="copy-actions"
-                 role="group"
-                 aria-label="Copy session evidence">
-                <button type="button"
-                        class="detail-action-button"
-                        data-copy-action="url"
-                        @onclick="CopyUrlAsync">Copy URL</button>
-                <button type="button"
-                        class="detail-action-button"
-                        data-copy-action="request-headers"
-                        disabled="@(Session.RequestHeaders.Count == 0)"
-                        @onclick="CopyRequestHeadersAsync">
-                    Copy request headers
-                </button>
-                <button type="button"
-                        class="detail-action-button"
-                        data-copy-action="response-headers"
-                        disabled="@(Session.ResponseHeaders.Count == 0)"
-                        @onclick="CopyResponseHeadersAsync">
-                    Copy response headers
-                </button>
-                <button type="button"
-                        class="detail-action-button"
-                        data-copy-action="request-body"
-                        disabled="@(RequestBodyPayload is null)"
-                        @onclick="CopyRequestBodyAsync">
-                    Copy request body
-                </button>
-                <button type="button"
-                        class="detail-action-button"
-                        data-copy-action="response-body"
-                        disabled="@(ResponseBodyPayload is null)"
-                        @onclick="CopyResponseBodyAsync">
-                    Copy response body
-                </button>
-                <button type="button"
-                        class="detail-action-button"
-                        data-copy-action="finding-summary"
-                        disabled="@(FindingPayload is null)"
-                        @onclick="CopyFindingsAsync">
-                    Copy finding summary
-                </button>
-            </div>
-        </div>
-
-        @if (!string.IsNullOrWhiteSpace(copyStatus))
-        {
-            <p class="copy-status @GetCopyStatusClass()"
-               role="status"
-               aria-live="polite">@copyStatus</p>
-        }
-
         @if (Session.Analysis.HasFindings)
         {
             <section class="analysis-section @TraceDisplayFormatter.GetAnalysisSeverityClass(Session.Analysis.Severity)">
@@ -91,9 +20,6 @@
                         <p class="eyebrow">Ruleset analysis</p>
                         <h3>@TraceDisplayFormatter.GetSeverityLabel(Session.Analysis.Severity)</h3>
                     </div>
-                    <span class="severity-badge large @TraceDisplayFormatter.GetSeverityClass(Session.Analysis.Severity)">
-                        @((int?)Session.Analysis.Severity)
-                    </span>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(Session.Analysis.SessionType))
@@ -267,127 +193,19 @@
     [Parameter]
     public EventCallback<DetailTrafficView> TrafficViewChanged { get; set; }
 
-    [Parameter]
-    public bool CanSelectPrevious { get; set; }
-
-    [Parameter]
-    public bool CanSelectNext { get; set; }
-
-    [Parameter]
-    public EventCallback SelectPreviousRequested { get; set; }
-
-    [Parameter]
-    public EventCallback SelectNextRequested { get; set; }
-
-    private int? previousSessionId;
-    private string? copyStatus;
-    private CopyStatusKind copyStatusKind;
-
     private IReadOnlyList<DiagnosticHeader> DiagnosticHeaders =>
         Session is null
             ? []
             : DiagnosticHeaderService.GetHeaders(Session);
 
-    private ClipboardPayload? RequestBodyPayload =>
-        CopyFormatter.FormatBody(Session?.RequestContent);
-
-    private ClipboardPayload? ResponseBodyPayload =>
-        CopyFormatter.FormatBody(Session?.ResponseContent);
-
-    private ClipboardPayload? FindingPayload =>
-        Session is null
-            ? null
-            : CopyFormatter.FormatFindings(Session);
-
-    protected override void OnParametersSet()
-    {
-        if (previousSessionId == Session?.Id)
-        {
-            return;
-        }
-
-        previousSessionId = Session?.Id;
-        copyStatus = null;
-    }
-
     private Task SetTrafficViewAsync(DetailTrafficView view) =>
         TrafficViewChanged.InvokeAsync(view);
 
-    private Task CopyUrlAsync() =>
-        CopyAsync(
-            "URL",
-            Session is null ? null : CopyFormatter.FormatUrl(Session));
-
-    private Task CopyRequestHeadersAsync() =>
-        CopyAsync(
-            "Request headers",
-            Session is null
-                ? null
-                : CopyFormatter.FormatHeaders(Session.RequestHeaders));
-
-    private Task CopyResponseHeadersAsync() =>
-        CopyAsync(
-            "Response headers",
-            Session is null
-                ? null
-                : CopyFormatter.FormatHeaders(Session.ResponseHeaders));
-
-    private Task CopyRequestBodyAsync() =>
-        CopyAsync("Request body", RequestBodyPayload);
-
-    private Task CopyResponseBodyAsync() =>
-        CopyAsync("Response body", ResponseBodyPayload);
-
-    private Task CopyFindingsAsync() =>
-        CopyAsync("Finding summary", FindingPayload);
-
-    private async Task CopyAsync(
-        string label,
-        ClipboardPayload? payload)
-    {
-        if (payload is null)
-        {
-            copyStatus = $"{label} is not available for this session.";
-            copyStatusKind = CopyStatusKind.Error;
-            return;
-        }
-
-        var sessionId = Session?.Id;
-        var result = await ClipboardService.WriteTextAsync(payload.Text);
-        if (Session?.Id != sessionId)
-        {
-            return;
-        }
-
-        if (!result.Succeeded)
-        {
-            copyStatus = $"Unable to copy {label.ToLowerInvariant()}. "
-                + (string.IsNullOrWhiteSpace(result.ErrorMessage)
-                    ? "Clipboard access failed."
-                    : result.ErrorMessage);
-            copyStatusKind = CopyStatusKind.Error;
-            return;
-        }
-
-        if (payload.IncludesTruncationNotice)
-        {
-            copyStatus = $"{label} copied with a truncation warning.";
-            copyStatusKind = CopyStatusKind.Warning;
-            return;
-        }
-
-        copyStatus = $"{label} copied.";
-        copyStatusKind = CopyStatusKind.Success;
-    }
-
-    private string GetCopyStatusClass() =>
-        copyStatusKind switch
-        {
-            CopyStatusKind.Success => "success",
-            CopyStatusKind.Warning => "warning",
-            CopyStatusKind.Error => "error",
-            _ => string.Empty
-        };
+    private string GetDetailPanelAriaLabel() =>
+        Session is null
+            ? "Session details"
+            : $"Session {Session.Id} details for "
+                + $"{Session.Method} {Session.Url.Host}";
 
     private string GetTrafficViewButtonClass(DetailTrafficView view) =>
         TrafficView == view
@@ -421,10 +239,4 @@
         }
     };
 
-    private enum CopyStatusKind
-    {
-        Success,
-        Warning,
-        Error
-    }
 }

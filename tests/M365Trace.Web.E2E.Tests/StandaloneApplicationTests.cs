@@ -54,15 +54,7 @@ public sealed class StandaloneApplicationTests
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await playwright.Chromium.LaunchAsync(
                 new BrowserTypeLaunchOptions { Headless = true });
-            await using var context = await browser.NewContextAsync(
-                new BrowserNewContextOptions
-                {
-                    Permissions =
-                    [
-                        "clipboard-read",
-                        "clipboard-write"
-                    ]
-                });
+            await using var context = await browser.NewContextAsync();
             var page = await context.NewPageAsync();
 
             await page.GotoAsync(
@@ -79,29 +71,6 @@ public sealed class StandaloneApplicationTests
                 .Filter(new LocatorFilterOptions { HasText = "request-id" });
             await diagnosticHeader.WaitForAsync();
             Assert.Contains("e2e-request-1", await diagnosticHeader.InnerTextAsync());
-
-            await page.Locator("button[data-copy-action=url]").ClickAsync();
-            await page.Locator(".copy-status.success").WaitForAsync();
-            Assert.Equal(
-                "URL copied.",
-                await page.Locator(".copy-status.success").InnerTextAsync());
-            Assert.Equal(
-                "https://outlook.office.com/owa/",
-                await page.EvaluateAsync<string>(
-                    "() => navigator.clipboard.readText()"));
-
-            await page
-                .Locator("button[data-session-navigation=next]")
-                .ClickAsync();
-            await page
-                .Locator("tbody tr.selected[data-session-id='2']")
-                .WaitForAsync();
-            Assert.True(await page
-                .Locator("button[data-session-navigation=next]")
-                .IsDisabledAsync());
-            Assert.False(await page
-                .Locator("button[data-session-navigation=previous]")
-                .IsDisabledAsync());
 
             var severityMenu = page.Locator(
                 "details[data-filter-menu=severity]");
@@ -156,12 +125,65 @@ public sealed class StandaloneApplicationTests
                 0,
                 0.5);
 
+            await page
+                .Locator("input.search-box")
+                .FillAsync("SERVICE UNAVAILABLE");
+            await WaitForRowCountWithDiagnosticsAsync(page, 1);
+            await page
+                .Locator("tbody tr[data-session-id='2']")
+                .WaitForAsync();
+
+            await page.Locator("button.search-clear-button").ClickAsync();
+            await WaitForRowCountWithDiagnosticsAsync(page, 2);
+
             await page.Locator("input.search-box").FillAsync("missing");
             await WaitForRowCountWithDiagnosticsAsync(page, 0);
             Assert.True(await page.Locator("button.search-clear-button").IsVisibleAsync());
 
             await page.Locator("button.search-clear-button").ClickAsync();
             await WaitForRowCountWithDiagnosticsAsync(page, 2);
+
+            var firstSession = page.Locator(
+                "tbody tr[data-session-id='1']");
+            var secondSession = page.Locator(
+                "tbody tr[data-session-id='2']");
+            await firstSession.FocusAsync();
+            await firstSession.PressAsync("ArrowDown");
+            await secondSession.WaitForAsync();
+            await page
+                .Locator("tbody tr.selected[data-session-id='2']")
+                .WaitForAsync();
+            Assert.Equal(
+                "2",
+                await page.EvaluateAsync<string>(
+                    "() => document.activeElement?.dataset.sessionId"));
+            Assert.Equal(
+                "true",
+                await secondSession.GetAttributeAsync("aria-selected"));
+
+            await secondSession.PressAsync("Home");
+            await page
+                .Locator("tbody tr.selected[data-session-id='1']")
+                .WaitForAsync();
+            Assert.Equal(
+                "1",
+                await page.EvaluateAsync<string>(
+                    "() => document.activeElement?.dataset.sessionId"));
+
+            await firstSession.PressAsync("End");
+            await page
+                .Locator("tbody tr.selected[data-session-id='2']")
+                .WaitForAsync();
+            await secondSession.PressAsync("ArrowRight");
+            Assert.True(await page
+                .Locator("[data-session-detail]")
+                .EvaluateAsync<bool>("element => element === document.activeElement"));
+
+            await page.Locator("[data-session-detail]").PressAsync("ArrowLeft");
+            Assert.Equal(
+                "2",
+                await page.EvaluateAsync<string>(
+                    "() => document.activeElement?.dataset.sessionId"));
 
             await page.GetByRole(
                     AriaRole.Button,

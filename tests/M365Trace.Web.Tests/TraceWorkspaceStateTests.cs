@@ -63,18 +63,6 @@ public sealed class TraceWorkspaceStateTests
     }
 
     [Fact]
-    public void VisibleNavigation_UsesCurrentFilterAndSort()
-    {
-        _state.ReplaceSessions("sample.har", _sessions);
-        _state.SetFilter("example.test");
-        _state.SetSort(SessionSortColumn.Method);
-        _state.SelectSession(_sessions[0]);
-
-        Assert.Same(_sessions[2], _state.GetPreviousVisibleSession());
-        Assert.Same(_sessions[1], _state.GetNextVisibleSession());
-    }
-
-    [Fact]
     public void ClearFilter_RestoresAllSessions()
     {
         _state.ReplaceSessions("sample.har", _sessions);

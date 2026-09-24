@@ -42,36 +42,6 @@ public sealed class SessionQueryService
                 .ToArray();
     }
 
-    public TraceSession? GetAdjacent(
-        IReadOnlyList<TraceSession> visibleSessions,
-        TraceSession? selectedSession,
-        int offset)
-    {
-        ArgumentNullException.ThrowIfNull(visibleSessions);
-
-        if (visibleSessions.Count == 0 || selectedSession is null || offset == 0)
-        {
-            return null;
-        }
-
-        var selectedIndex = -1;
-        for (var index = 0; index < visibleSessions.Count; index++)
-        {
-            if (visibleSessions[index].Id == selectedSession.Id)
-            {
-                selectedIndex = index;
-                break;
-            }
-        }
-
-        var adjacentIndex = selectedIndex + offset;
-        return selectedIndex >= 0
-            && adjacentIndex >= 0
-            && adjacentIndex < visibleSessions.Count
-                ? visibleSessions[adjacentIndex]
-                : null;
-    }
-
     private static bool MatchesStructuredFilters(
         TraceSession session,
         SessionQuery query) =>
@@ -211,6 +181,10 @@ public sealed class SessionQueryService
             || ContainsFilter(analysis.SessionType, filter)
             || ContainsFilter(analysis.Authentication, filter)
             || ContainsFilter(analysis.ResponseServer, filter)
+            || HeadersContain(session.RequestHeaders, filter)
+            || HeadersContain(session.ResponseHeaders, filter)
+            || ContainsFilter(session.RequestContent?.Text, filter)
+            || ContainsFilter(session.ResponseContent?.Text, filter)
             || analysis.Findings.Any(finding =>
                 ContainsFilter(finding.RuleId, filter)
                 || ContainsFilter(finding.Title, filter)
@@ -218,6 +192,13 @@ public sealed class SessionQueryService
                 || ContainsFilter(finding.Recommendation, filter)
                 || ContainsFilter(finding.Evidence, filter));
     }
+
+    private static bool HeadersContain(
+        IReadOnlyList<TraceHeader> headers,
+        string filter) =>
+        headers.Any(header =>
+            ContainsFilter(header.Name, filter)
+            || ContainsFilter(header.Value, filter));
 
     private static bool ContainsFilter(string? value, string filter) =>
         value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true;

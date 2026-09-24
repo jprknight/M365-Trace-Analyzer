@@ -130,11 +130,7 @@ else if (workspace.Sessions.Count > 0)
                       SessionSelected="SelectSession" />
         <SessionDetailPanel Session="workspace.SelectedSession"
                             TrafficView="trafficView"
-                            TrafficViewChanged="SetTrafficView"
-                            CanSelectPrevious="@(workspace.GetPreviousVisibleSession() is not null)"
-                            CanSelectNext="@(workspace.GetNextVisibleSession() is not null)"
-                            SelectPreviousRequested="SelectPreviousVisibleSession"
-                            SelectNextRequested="SelectNextVisibleSession" />
+                            TrafficViewChanged="SetTrafficView" />
     </section>
 }
 
@@ -214,24 +210,6 @@ else if (workspace.Sessions.Count > 0)
     }
 
     private void SetTrafficView(DetailTrafficView view) => trafficView = view;
-
-    private void SelectPreviousVisibleSession()
-    {
-        var previousSession = workspace.GetPreviousVisibleSession();
-        if (previousSession is not null)
-        {
-            workspace.SelectSession(previousSession);
-        }
-    }
-
-    private void SelectNextVisibleSession()
-    {
-        var nextSession = workspace.GetNextVisibleSession();
-        if (nextSession is not null)
-        {
-            workspace.SelectSession(nextSession);
-        }
-    }
 
     private async Task LoadTraceAsync(InputFileChangeEventArgs args)
     {

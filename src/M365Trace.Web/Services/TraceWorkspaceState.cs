@@ -83,12 +83,6 @@ public sealed class TraceWorkspaceState(SessionQueryService queryService)
             candidate.Id == session.Id);
     }
 
-    public TraceSession? GetPreviousVisibleSession() =>
-        queryService.GetAdjacent(VisibleSessions, SelectedSession, -1);
-
-    public TraceSession? GetNextVisibleSession() =>
-        queryService.GetAdjacent(VisibleSessions, SelectedSession, 1);
-
     private void ReconcileSelection()
     {
         var visibleSessions = VisibleSessions;
