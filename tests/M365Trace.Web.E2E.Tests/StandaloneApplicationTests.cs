@@ -69,6 +69,8 @@ public sealed class StandaloneApplicationTests
                 "details[data-filter-menu=severity]");
             var statusMenu = page.Locator(
                 "details[data-filter-menu=status]");
+            var durationMenu = page.Locator(
+                "details[data-filter-menu=duration]");
             await severityMenu.Locator("summary").ClickAsync();
             Assert.NotNull(await severityMenu.GetAttributeAsync("open"));
 
@@ -79,16 +81,22 @@ public sealed class StandaloneApplicationTests
             await page.Locator(".panel-heading h2").ClickAsync();
             Assert.Null(await statusMenu.GetAttributeAsync("open"));
 
-            var menuHeight = await severityMenu
+            var menuBounds = await severityMenu
                 .Locator("summary")
-                .EvaluateAsync<double>(
-                    "element => element.getBoundingClientRect().height");
-            var durationHeight = await page
-                .Locator("label.filter-select-label")
-                .Filter(new LocatorFilterOptions { HasText = "Duration" })
-                .EvaluateAsync<double>(
-                    "element => element.getBoundingClientRect().height");
-            Assert.InRange(Math.Abs(menuHeight - durationHeight), 0, 0.5);
+                .BoundingBoxAsync();
+            var durationBounds = await durationMenu
+                .Locator("summary")
+                .BoundingBoxAsync();
+            Assert.NotNull(menuBounds);
+            Assert.NotNull(durationBounds);
+            Assert.InRange(
+                Math.Abs(menuBounds.Y - durationBounds.Y),
+                0,
+                0.5);
+            Assert.InRange(
+                Math.Abs(menuBounds.Height - durationBounds.Height),
+                0,
+                0.5);
 
             await page.Locator("input.search-box").FillAsync("missing");
             await WaitForRowCountWithDiagnosticsAsync(page, 0);
