@@ -127,6 +127,130 @@ public sealed class SessionQueryServiceTests
     }
 
     [Fact]
+    public void Apply_StructuredCategoriesCombineWithAnd()
+    {
+        var result = GetIds(new SessionQuery
+        {
+            Severities = [TraceSeverityFilter.Severe],
+            StatusFamilies = [TraceStatusFamily.ServerError],
+            Methods = ["post"],
+            Hosts = ["LOGIN.MICROSOFTONLINE.COM"],
+            Duration = SessionDurationFilter.UnderOneSecond,
+            SessionTypes = ["authentication"],
+            Authentications = ["oauth"],
+            FindingRuleIds = ["m365.test.failure"],
+            Findings = SessionFindingFilter.HasFindings
+        });
+
+        Assert.Equal([2], result);
+    }
+
+    [Fact]
+    public void Apply_ValuesWithinCategoryCombineWithOr()
+    {
+        var result = GetIds(new SessionQuery
+        {
+            Severities =
+            [
+                TraceSeverityFilter.Severe,
+                TraceSeverityFilter.Warning
+            ],
+            StatusFamilies = [TraceStatusFamily.ClientError],
+            StatusCodes = [503]
+        });
+
+        Assert.Equal([2, 3], result);
+    }
+
+    [Fact]
+    public void Apply_FindingPresenceSupportsBothStates()
+    {
+        Assert.Equal(
+            [2],
+            GetIds(new SessionQuery
+            {
+                Findings = SessionFindingFilter.HasFindings
+            }));
+        Assert.Equal(
+            [1, 3],
+            GetIds(new SessionQuery
+            {
+                Findings = SessionFindingFilter.NoFindings
+            }));
+    }
+
+    [Theory]
+    [InlineData(SessionDurationFilter.UnderOneSecond, new[] { 1 })]
+    [InlineData(SessionDurationFilter.OneToFiveSeconds, new[] { 2 })]
+    [InlineData(SessionDurationFilter.FiveToThirtySeconds, new[] { 3 })]
+    [InlineData(SessionDurationFilter.ThirtySecondsOrMore, new[] { 4 })]
+    public void Apply_DurationPresetsUseStableBoundaries(
+        SessionDurationFilter filter,
+        int[] expectedIds)
+    {
+        var sessions = new[]
+        {
+            _sessions[0] with
+            {
+                Id = 1,
+                Duration = TimeSpan.FromMilliseconds(999)
+            },
+            _sessions[0] with
+            {
+                Id = 2,
+                Duration = TimeSpan.FromSeconds(1)
+            },
+            _sessions[0] with
+            {
+                Id = 3,
+                Duration = TimeSpan.FromSeconds(5)
+            },
+            _sessions[0] with
+            {
+                Id = 4,
+                Duration = TimeSpan.FromSeconds(30)
+            }
+        };
+
+        var result = _service.Apply(
+            sessions,
+            new SessionQuery { Duration = filter });
+
+        Assert.Equal(expectedIds, result.Select(session => session.Id));
+    }
+
+    [Fact]
+    public void Apply_OtherSeverityIncludesUnclassifiedStates()
+    {
+        var sessions = new[]
+        {
+            _sessions[0] with
+            {
+                Id = 10,
+                Analysis = TraceAnalysisResult.Empty
+            },
+            _sessions[0] with
+            {
+                Id = 20,
+                Analysis = new TraceAnalysisResult
+                {
+                    Severity = TraceSeverity.InternalError
+                }
+            },
+            _sessions[0]
+        };
+
+        var result = _service.Apply(
+            sessions,
+            new SessionQuery
+            {
+                Severities = [TraceSeverityFilter.Other]
+            });
+
+        Assert.Equal([10, 20], result.Select(session => session.Id));
+    }
+
+    [Fact]
     public void GetAdjacent_StaysWithinVisibleSessions()
     {
         Assert.Null(_service.GetAdjacent(_sessions, _sessions[0], -1));

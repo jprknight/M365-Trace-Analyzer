@@ -1,0 +1,72 @@
+<details class="filter-menu" data-filter-menu="@MenuName">
+    <summary>@Title @FormatCount(SelectedValues.Count)</summary>
+    <div class="filter-menu-content">
+        @if (Options.Count == 0)
+        {
+            <span class="filter-option-empty">No values</span>
+        }
+        else
+        {
+            @foreach (var option in Options)
+            {
+                <label>
+                    <input type="checkbox"
+                           checked="@Contains(option)"
+                           @onchange="() => ToggleAsync(option)" />
+                    @if (UseCodeLabels)
+                    {
+                        <code>@option</code>
+                    }
+                    else
+                    {
+                        @option
+                    }
+                </label>
+            }
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public required string Title { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string MenuName { get; set; }
+
+    [Parameter, EditorRequired]
+    public required IReadOnlyList<string> Options { get; set; }
+
+    [Parameter, EditorRequired]
+    public required IReadOnlyList<string> SelectedValues { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<string>> SelectionChanged { get; set; }
+
+    [Parameter]
+    public bool UseCodeLabels { get; set; }
+
+    private bool Contains(string value) =>
+        SelectedValues.Any(selected =>
+            string.Equals(
+                selected,
+                value,
+                StringComparison.OrdinalIgnoreCase));
+
+    private Task ToggleAsync(string value)
+    {
+        var values = Contains(value)
+            ? SelectedValues
+                .Where(selected =>
+                    !string.Equals(
+                        selected,
+                        value,
+                        StringComparison.OrdinalIgnoreCase))
+                .ToArray()
+            : [.. SelectedValues, value];
+        return SelectionChanged.InvokeAsync(values);
+    }
+
+    private static string FormatCount(int count) =>
+        count == 0 ? string.Empty : $"({count})";
+}

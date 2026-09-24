@@ -218,7 +218,10 @@ public sealed class HomeTests : IDisposable
 
         component.WaitForAssertion(() =>
         {
-            Assert.Empty(component.FindAll("tbody tr"));
+            Assert.Empty(GetVisibleSessionIds(component));
+            Assert.Contains(
+                "No sessions match the active filters.",
+                component.Markup);
             Assert.NotNull(component.Find("button.search-clear-button"));
         });
 
@@ -256,6 +259,126 @@ public sealed class HomeTests : IDisposable
 
         component.WaitForAssertion(() =>
             Assert.Equal([expectedSessionId], GetVisibleSessionIds(component)));
+    }
+
+    [Fact]
+    public void StructuredFilters_CombineAcrossCategoriesAndRenderChips()
+    {
+        var component = RenderAndLoad();
+
+        SelectFilterOption(component, "severity", "Severe");
+        SelectFilterOption(component, "severity", "Warning");
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([2, 3], GetVisibleSessionIds(component));
+            Assert.Contains(
+                "Severity: Severe + Warning",
+                component.Find(".filter-chip").TextContent);
+        });
+
+        SelectFilterOption(component, "method", "POST");
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([2], GetVisibleSessionIds(component));
+            Assert.Equal(2, component.FindAll(".filter-chip").Count);
+            Assert.Equal(
+                "1 of 3 sessions",
+                NormalizeWhitespace(
+                    component.Find(".filter-result-count").TextContent));
+        });
+    }
+
+    [Fact]
+    public void SummaryDrillThrough_AppliesFilterAndChip()
+    {
+        var component = RenderAndLoad();
+
+        ClickSummaryCount(component, "5xx");
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([2], GetVisibleSessionIds(component));
+            Assert.Contains(
+                "Status: 5xx",
+                component.Find(".filter-chip").TextContent);
+            Assert.Contains(
+                "1 visible of 3",
+                component.Find("details.trace-summary").TextContent);
+        });
+
+        component.Find(".filter-chip").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([1, 2, 3], GetVisibleSessionIds(component));
+            Assert.Empty(component.FindAll(".filter-chip"));
+        });
+    }
+
+    [Fact]
+    public void ClearAll_RemovesFreeTextAndStructuredFilters()
+    {
+        var component = RenderAndLoad();
+
+        ClickSummaryCount(component, "5xx");
+        component.Find("input.search-box").Input("login");
+
+        component.WaitForAssertion(() =>
+            Assert.Equal([2], GetVisibleSessionIds(component)));
+
+        component.Find("button.filter-clear-all").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([1, 2, 3], GetVisibleSessionIds(component));
+            Assert.Equal(
+                string.Empty,
+                component.Find("input.search-box").GetAttribute("value"));
+            Assert.Empty(component.FindAll(".filter-chip"));
+        });
+    }
+
+    [Fact]
+    public void FilterRemovingSelection_SelectsNextVisibleSession()
+    {
+        var component = RenderAndLoad();
+        component.Find("tbody tr[data-session-id='2']").Click();
+
+        ClickSummaryCount(component, "4xx");
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([3], GetVisibleSessionIds(component));
+            Assert.Equal(
+                "3",
+                component.Find("tbody tr.selected td").TextContent);
+            Assert.Contains("DELETE graph.microsoft.com", component.Markup);
+        });
+    }
+
+    [Fact]
+    public void CombinedFiltersWithNoMatches_ShowFilteredEmptyState()
+    {
+        var component = RenderAndLoad();
+
+        ClickSummaryCount(component, "5xx");
+        component.Find("input.search-box").Input("graph");
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Empty(GetVisibleSessionIds(component));
+            Assert.Contains(
+                "No sessions match the active filters.",
+                component.Markup);
+            Assert.Contains(
+                "Select a session to inspect its request and response.",
+                component.Markup);
+            Assert.DoesNotContain(
+                "Open a HAR or SAZ trace",
+                component.Markup);
+        });
     }
 
     [Theory]
@@ -464,7 +587,7 @@ public sealed class HomeTests : IDisposable
 
     private static int[] GetVisibleSessionIds(
         IRenderedComponent<Home> component) =>
-        component.FindAll("tbody tr")
+        component.FindAll("tbody tr[data-session-id]")
             .Select(row => int.Parse(
                 row.QuerySelector("td")!.TextContent,
                 System.Globalization.CultureInfo.InvariantCulture))
@@ -476,6 +599,37 @@ public sealed class HomeTests : IDisposable
         component.FindAll("thead button")
             .Single(element => element.TextContent == column)
             .Click();
+
+    private static void ClickSummaryCount(
+        IRenderedComponent<Home> component,
+        string label) =>
+        component.FindAll("button.summary-count-button")
+            .Single(button =>
+                button.TextContent.Contains(
+                    label,
+                    StringComparison.Ordinal))
+            .Click();
+
+    private static void SelectFilterOption(
+        IRenderedComponent<Home> component,
+        string menu,
+        string label)
+    {
+        var option = component
+            .FindAll($"details[data-filter-menu='{menu}'] label")
+            .Single(element =>
+                element.TextContent.Trim().Equals(
+                    label,
+                    StringComparison.Ordinal));
+        option.QuerySelector("input")!.Change(true);
+    }
+
+    private static string NormalizeWhitespace(string value) =>
+        string.Join(
+            " ",
+            value.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries));
 
     private static string? GetSortAriaState(
         IRenderedComponent<Home> component,

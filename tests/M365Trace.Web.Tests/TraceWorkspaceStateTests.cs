@@ -89,6 +89,63 @@ public sealed class TraceWorkspaceStateTests
             _state.VisibleSessions.Select(session => session.Id));
     }
 
+    [Fact]
+    public void SetQuery_SelectsNextVisibleSessionInTraceOrder()
+    {
+        _state.ReplaceSessions("sample.har", _sessions);
+        _state.SelectSession(_sessions[1]);
+
+        _state.SetQuery(new SessionQuery
+        {
+            Hosts = ["example.test"],
+            Methods = ["DELETE"]
+        });
+
+        Assert.Same(_sessions[2], _state.SelectedSession);
+    }
+
+    [Fact]
+    public void SetQuery_FallsBackToPreviousVisibleSession()
+    {
+        _state.ReplaceSessions("sample.har", _sessions);
+        _state.SelectSession(_sessions[2]);
+
+        _state.SetQuery(new SessionQuery { Methods = ["GET"] });
+
+        Assert.Same(_sessions[0], _state.SelectedSession);
+    }
+
+    [Fact]
+    public void SetQuery_ClearsSelectionWhenNoSessionsMatch()
+    {
+        _state.ReplaceSessions("sample.har", _sessions);
+
+        _state.SetQuery(new SessionQuery { Methods = ["PATCH"] });
+
+        Assert.Empty(_state.VisibleSessions);
+        Assert.Null(_state.SelectedSession);
+        Assert.Equal(3, _state.Sessions.Count);
+    }
+
+    [Fact]
+    public void ClearAllFilters_PreservesSortAndRestoresSelection()
+    {
+        _state.ReplaceSessions("sample.har", _sessions);
+        _state.SetSort(SessionSortColumn.Method);
+        _state.SetQuery(_state.Query with
+        {
+            FreeText = "missing",
+            Methods = ["PATCH"]
+        });
+
+        _state.ClearAllFilters();
+
+        Assert.False(_state.Query.HasFilters);
+        Assert.Equal(SessionSortColumn.Method, _state.Query.SortColumn);
+        Assert.Equal([3, 1, 2], _state.VisibleSessions.Select(session => session.Id));
+        Assert.Same(_sessions[0], _state.SelectedSession);
+    }
+
     private static TraceSession CreateSession(
         int id,
         string method,

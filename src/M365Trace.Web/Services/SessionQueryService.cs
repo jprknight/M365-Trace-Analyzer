@@ -12,9 +12,9 @@ public sealed class SessionQueryService
         ArgumentNullException.ThrowIfNull(query);
 
         var filter = query.FreeText.Trim();
-        var filteredSessions = filter.Length == 0
-            ? sessions
-            : sessions.Where(session => MatchesFilter(session, filter));
+        var filteredSessions = sessions.Where(session =>
+            MatchesStructuredFilters(session, query)
+            && (filter.Length == 0 || MatchesFreeText(session, filter)));
 
         Func<TraceSession, object?> selector = query.SortColumn switch
         {
@@ -72,7 +72,132 @@ public sealed class SessionQueryService
                 : null;
     }
 
-    private static bool MatchesFilter(TraceSession session, string filter)
+    private static bool MatchesStructuredFilters(
+        TraceSession session,
+        SessionQuery query) =>
+        MatchesSeverity(session, query.Severities)
+        && MatchesStatus(
+            session,
+            query.StatusFamilies,
+            query.StatusCodes)
+        && MatchesExactValue(session.Method, query.Methods)
+        && MatchesExactValue(session.Url.Host, query.Hosts)
+        && MatchesDuration(session.Duration, query.Duration)
+        && MatchesExactValue(
+            session.Analysis.SessionType,
+            query.SessionTypes)
+        && MatchesExactValue(
+            NormalizeAuthentication(session.Analysis.Authentication),
+            query.Authentications)
+        && MatchesFindings(
+            session,
+            query.FindingRuleIds,
+            query.Findings);
+
+    private static bool MatchesSeverity(
+        TraceSession session,
+        IReadOnlyList<TraceSeverityFilter> filters) =>
+        filters.Count == 0
+        || filters.Any(filter => filter switch
+        {
+            TraceSeverityFilter.Severe =>
+                session.Analysis.Severity == TraceSeverity.Severe,
+            TraceSeverityFilter.Concerning =>
+                session.Analysis.Severity == TraceSeverity.Concerning,
+            TraceSeverityFilter.Warning =>
+                session.Analysis.Severity == TraceSeverity.Warning,
+            TraceSeverityFilter.Normal =>
+                session.Analysis.Severity == TraceSeverity.Normal,
+            TraceSeverityFilter.Other =>
+                session.Analysis.Severity is not (
+                    TraceSeverity.Severe
+                    or TraceSeverity.Concerning
+                    or TraceSeverity.Warning
+                    or TraceSeverity.Normal),
+            _ => false
+        });
+
+    private static bool MatchesStatus(
+        TraceSession session,
+        IReadOnlyList<TraceStatusFamily> families,
+        IReadOnlyList<int> exactCodes) =>
+        families.Count == 0 && exactCodes.Count == 0
+        || exactCodes.Contains(session.StatusCode)
+        || families.Any(family =>
+            GetStatusFamily(session.StatusCode) == family);
+
+    private static bool MatchesExactValue(
+        string? value,
+        IReadOnlyList<string> filters) =>
+        filters.Count == 0
+        || filters.Any(filter =>
+            string.Equals(
+                value,
+                filter,
+                StringComparison.OrdinalIgnoreCase));
+
+    private static bool MatchesDuration(
+        TimeSpan duration,
+        SessionDurationFilter? filter) =>
+        filter switch
+        {
+            null => true,
+            SessionDurationFilter.UnderOneSecond =>
+                duration < TimeSpan.FromSeconds(1),
+            SessionDurationFilter.OneToFiveSeconds =>
+                duration >= TimeSpan.FromSeconds(1)
+                && duration < TimeSpan.FromSeconds(5),
+            SessionDurationFilter.FiveToThirtySeconds =>
+                duration >= TimeSpan.FromSeconds(5)
+                && duration < TimeSpan.FromSeconds(30),
+            SessionDurationFilter.ThirtySecondsOrMore =>
+                duration >= TimeSpan.FromSeconds(30),
+            _ => false
+        };
+
+    private static bool MatchesFindings(
+        TraceSession session,
+        IReadOnlyList<string> ruleIds,
+        SessionFindingFilter? findingFilter)
+    {
+        if (findingFilter == SessionFindingFilter.HasFindings
+            && !session.Analysis.HasFindings)
+        {
+            return false;
+        }
+
+        if (findingFilter == SessionFindingFilter.NoFindings
+            && session.Analysis.HasFindings)
+        {
+            return false;
+        }
+
+        return ruleIds.Count == 0
+            || session.Analysis.Findings.Any(finding =>
+                ruleIds.Any(ruleId =>
+                    string.Equals(
+                        finding.RuleId,
+                        ruleId,
+                        StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static TraceStatusFamily GetStatusFamily(int statusCode) =>
+        statusCode switch
+        {
+            <= 0 => TraceStatusFamily.NoResponse,
+            >= 200 and <= 299 => TraceStatusFamily.Success,
+            >= 300 and <= 399 => TraceStatusFamily.Redirect,
+            >= 400 and <= 499 => TraceStatusFamily.ClientError,
+            >= 500 and <= 599 => TraceStatusFamily.ServerError,
+            _ => TraceStatusFamily.Other
+        };
+
+    public static string NormalizeAuthentication(string? authentication) =>
+        string.IsNullOrWhiteSpace(authentication)
+            ? "Not classified"
+            : authentication.Trim();
+
+    private static bool MatchesFreeText(TraceSession session, string filter)
     {
         var analysis = session.Analysis;
 

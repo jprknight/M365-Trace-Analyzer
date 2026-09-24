@@ -4,9 +4,10 @@ namespace M365Trace.Web.Services;
 
 public sealed class TraceSummaryService
 {
-    private const int MaximumRankedItems = 5;
-    private const string PerformanceFindingRuleId =
+    public const string PerformanceFindingRuleId =
         "M365.Performance.Duration";
+
+    private const int MaximumRankedItems = 5;
     private const string UnclassifiedAuthentication = "Not classified";
 
     public TraceSummary Create(IReadOnlyCollection<TraceSession> sessions)

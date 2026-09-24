@@ -39,12 +39,29 @@ public sealed class TraceWorkspaceState(SessionQueryService queryService)
 
     public void SetFilter(string? freeText)
     {
-        Query = Query with { FreeText = freeText ?? string.Empty };
+        SetQuery(Query with { FreeText = freeText ?? string.Empty });
     }
 
     public void ClearFilter()
     {
-        Query = Query with { FreeText = string.Empty };
+        SetQuery(Query with { FreeText = string.Empty });
+    }
+
+    public void SetQuery(SessionQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        Query = query;
+        ReconcileSelection();
+    }
+
+    public void ClearAllFilters()
+    {
+        SetQuery(new SessionQuery
+        {
+            SortColumn = Query.SortColumn,
+            SortAscending = Query.SortAscending
+        });
     }
 
     public void SetSort(SessionSortColumn column)
@@ -71,4 +88,62 @@ public sealed class TraceWorkspaceState(SessionQueryService queryService)
 
     public TraceSession? GetNextVisibleSession() =>
         queryService.GetAdjacent(VisibleSessions, SelectedSession, 1);
+
+    private void ReconcileSelection()
+    {
+        var visibleSessions = VisibleSessions;
+        if (visibleSessions.Count == 0)
+        {
+            SelectedSession = null;
+            return;
+        }
+
+        if (SelectedSession is null)
+        {
+            SelectedSession = GetFirstVisibleInTraceOrder(visibleSessions);
+            return;
+        }
+
+        if (visibleSessions.Any(session =>
+            session.Id == SelectedSession.Id))
+        {
+            return;
+        }
+
+        var selectedIndex = _sessions.FindIndex(session =>
+            session.Id == SelectedSession.Id);
+        var visibleIds = visibleSessions
+            .Select(session => session.Id)
+            .ToHashSet();
+
+        for (var index = selectedIndex + 1; index < _sessions.Count; index++)
+        {
+            if (visibleIds.Contains(_sessions[index].Id))
+            {
+                SelectedSession = _sessions[index];
+                return;
+            }
+        }
+
+        for (var index = selectedIndex - 1; index >= 0; index--)
+        {
+            if (visibleIds.Contains(_sessions[index].Id))
+            {
+                SelectedSession = _sessions[index];
+                return;
+            }
+        }
+
+        SelectedSession = GetFirstVisibleInTraceOrder(visibleSessions);
+    }
+
+    private TraceSession? GetFirstVisibleInTraceOrder(
+        IReadOnlyList<TraceSession> visibleSessions)
+    {
+        var visibleIds = visibleSessions
+            .Select(session => session.Id)
+            .ToHashSet();
+        return _sessions.FirstOrDefault(session =>
+            visibleIds.Contains(session.Id));
+    }
 }

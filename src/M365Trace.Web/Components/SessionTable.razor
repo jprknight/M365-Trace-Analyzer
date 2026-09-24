@@ -6,22 +6,29 @@
         </div>
         <div class="search-box-container">
             <input class="search-box"
-                   value="@FilterText"
+                   value="@Query.FreeText"
                    @oninput="HandleFilterInputAsync"
                    placeholder="Filter by analysis, host, path, method, or status"
                    aria-label="Filter sessions by analysis, host, path, method, or status" />
-            @if (!string.IsNullOrEmpty(FilterText))
+            @if (!string.IsNullOrEmpty(Query.FreeText))
             {
                 <button class="search-clear-button"
                         type="button"
                         title="Clear filter"
                         aria-label="Clear filter"
-                        @onclick="FilterCleared">
+                        @onclick="ClearFreeTextAsync">
                     &times;
                 </button>
             }
         </div>
     </div>
+
+    <TraceFilterBar AllSessions="AllSessions"
+                    Query="Query"
+                    QueryChanged="QueryChanged"
+                    VisibleSessionCount="Sessions.Count"
+                    TotalSessionCount="TotalSessionCount"
+                    ClearAllRequested="ClearAllRequested" />
 
     <div class="table-container">
         <table class="session-table">
@@ -65,27 +72,39 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var session in Sessions)
+                @if (Sessions.Count == 0)
                 {
-                    <tr class="@(SelectedSessionId == session.Id ? "selected" : null)"
-                        @onclick="() => SessionSelected.InvokeAsync(session)">
-                        <td>@session.Id</td>
-                        <td>
-                            <span class="severity-badge @TraceDisplayFormatter.GetSeverityClass(session.Analysis.Severity)">
-                                @TraceDisplayFormatter.GetSeverityLabel(session.Analysis.Severity)
-                            </span>
+                    <tr>
+                        <td colspan="7" class="empty-filter-result">
+                            No sessions match the active filters.
                         </td>
-                        <td>
-                            <span class="status-code @TraceDisplayFormatter.GetStatusClass(session.StatusCode)">
-                                @session.StatusCode
-                            </span>
-                        </td>
-                        <td><span class="method">@session.Method</span></td>
-                        <td>@session.Url.Host</td>
-                        <td class="path-cell"
-                            title="@session.Url.PathAndQuery">@session.Url.PathAndQuery</td>
-                        <td>@TraceDisplayFormatter.FormatDuration(session.Duration)</td>
                     </tr>
+                }
+                else
+                {
+                    @foreach (var session in Sessions)
+                    {
+                        <tr class="@(SelectedSessionId == session.Id ? "selected" : null)"
+                            data-session-id="@session.Id"
+                            @onclick="() => SessionSelected.InvokeAsync(session)">
+                            <td>@session.Id</td>
+                            <td>
+                                <span class="severity-badge @TraceDisplayFormatter.GetSeverityClass(session.Analysis.Severity)">
+                                    @TraceDisplayFormatter.GetSeverityLabel(session.Analysis.Severity)
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-code @TraceDisplayFormatter.GetStatusClass(session.StatusCode)">
+                                    @session.StatusCode
+                                </span>
+                            </td>
+                            <td><span class="method">@session.Method</span></td>
+                            <td>@session.Url.Host</td>
+                            <td class="path-cell"
+                                title="@session.Url.PathAndQuery">@session.Url.PathAndQuery</td>
+                            <td>@TraceDisplayFormatter.FormatDuration(session.Duration)</td>
+                        </tr>
+                    }
                 }
             </tbody>
         </table>
@@ -100,25 +119,22 @@
     public int TotalSessionCount { get; set; }
 
     [Parameter, EditorRequired]
+    public required IReadOnlyList<TraceSession> AllSessions { get; set; }
+
+    [Parameter, EditorRequired]
     public required IReadOnlyList<TraceSession> Sessions { get; set; }
 
     [Parameter]
     public int? SelectedSessionId { get; set; }
 
     [Parameter]
-    public string FilterText { get; set; } = string.Empty;
+    public required SessionQuery Query { get; set; }
 
     [Parameter]
-    public EventCallback<string> FilterTextChanged { get; set; }
+    public EventCallback<SessionQuery> QueryChanged { get; set; }
 
     [Parameter]
-    public SessionSortColumn SortColumn { get; set; } = SessionSortColumn.Id;
-
-    [Parameter]
-    public bool SortAscending { get; set; } = true;
-
-    [Parameter]
-    public EventCallback FilterCleared { get; set; }
+    public EventCallback ClearAllRequested { get; set; }
 
     [Parameter]
     public EventCallback<SessionSortColumn> SortChanged { get; set; }
@@ -127,17 +143,23 @@
     public EventCallback<TraceSession> SessionSelected { get; set; }
 
     private Task HandleFilterInputAsync(ChangeEventArgs args) =>
-        FilterTextChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+        QueryChanged.InvokeAsync(Query with
+        {
+            FreeText = args.Value?.ToString() ?? string.Empty
+        });
+
+    private Task ClearFreeTextAsync() =>
+        QueryChanged.InvokeAsync(Query with { FreeText = string.Empty });
 
     private string GetSortButtonClass(SessionSortColumn column) =>
-        SortColumn == column
-            ? $"sort-button active {(SortAscending ? "ascending" : "descending")}"
+        Query.SortColumn == column
+            ? $"sort-button active {(Query.SortAscending ? "ascending" : "descending")}"
             : "sort-button";
 
     private string GetAriaSort(SessionSortColumn column) =>
-        SortColumn != column
+        Query.SortColumn != column
             ? "none"
-            : SortAscending
+            : Query.SortAscending
                 ? "ascending"
                 : "descending";
 }

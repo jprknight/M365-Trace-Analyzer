@@ -177,7 +177,7 @@ public sealed class StandaloneApplicationTests
         try
         {
             await page.WaitForFunctionAsync(
-                "expected => document.querySelectorAll('tbody tr').length === expected",
+                "expected => document.querySelectorAll('tbody tr[data-session-id]').length === expected",
                 expectedCount);
         }
         catch (TimeoutException exception)
