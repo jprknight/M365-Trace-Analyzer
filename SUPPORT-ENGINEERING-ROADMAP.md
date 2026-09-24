@@ -26,12 +26,12 @@ The remaining gaps are less about basic file viewing and more about helping a su
 2. **Composable filtering is delivered.** Free text combines with structured filters for severity, status family or exact code, method, host, duration, session type, authentication, finding rule, and finding presence.
 3. **Source metadata fidelity is limited.** The normalized model omits protocol version, connection/process information, client/server IPs, TLS details, HAR timing phases, request/response byte sizes, redirect/cache data, and most SAZ metadata flags.
 4. **Timing analysis is shallow.** Only total duration is retained; there is no timeline or waterfall for DNS, connect, TLS, send, wait, receive, queueing, or repeated/retry patterns.
-5. **Investigation output is not portable.** Findings cannot be copied or exported as a support-ready report, and there is no redaction policy for secrets and customer data.
+5. **Investigation output is only partially portable.** URLs, headers, bodies, and finding summaries can be copied with explicit feedback and truncation warnings, but support-ready report export and a redaction policy remain planned.
 6. **Large-trace usability is unproven.** Import has limits, but there is no progress, cancellation, virtualization/paging, benchmark suite, or defined performance budget for 10,000-100,000 sessions.
 7. **Import diagnostics are all-or-nothing.** A malformed session can fail an import without a structured summary of skipped, truncated, partially decoded, or unsupported content.
-8. **Correlation workflows are manual.** The UI does not elevate correlation headers, group related calls, identify redirect/retry chains, or navigate between matching sessions.
+8. **Correlation workflows remain mostly manual.** The UI elevates common diagnostic headers and navigates matching sessions, but it does not yet group related calls or identify redirect, retry, and authentication chains.
 9. **Investigation state is ephemeral.** There are no bookmarks, notes, marked sessions, or saved filter state for a support engineer working through a trace.
-10. **Current UI behavior has component coverage, but future workflows remain untested.** Component tests cover import success and recovery, encrypted-SAZ password handling, free-text and structured filtering, active chips, summary drill-through, selection recovery, every sortable column, finding rendering, request/response view modes, update states, and body inspectors. A packaged Chromium smoke test covers HAR upload, filtering, filter clearing, and detail selection. Export, keyboard workflows, import-quality reporting, and representative SAZ browser tests require coverage when those features are implemented.
+10. **Current UI behavior has component coverage, but future workflows remain untested.** Component tests cover import success and recovery, encrypted-SAZ password handling, free-text and structured filtering, active chips, summary drill-through, selection recovery, matching-session navigation, diagnostic headers, clipboard feedback, every sortable column, finding rendering, request/response view modes, update states, and body inspectors. A packaged Chromium smoke test covers HAR upload, filtering, filter clearing, diagnostic headers, clipboard readback, matching-session navigation, and detail selection. Export, keyboard workflows, import-quality reporting, and representative SAZ browser tests require coverage when those features are implemented.
 
 ## Product decisions
 
@@ -53,8 +53,8 @@ Status markers in this document apply only where the complete listed outcome has
 No Phase 1, Phase 2, or Phase 3 feature set is complete yet. Work completed since this roadmap was written is concentrated in release engineering and regression protection:
 
 - Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
-- CI now validates formatting, warning-free builds, 161 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
-- A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, and request-only detail selection.
+- CI now validates formatting, warning-free builds, 169 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, diagnostic headers, clipboard integration, matching-session navigation, and request-only detail selection.
 - CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
 - Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
 - XML display now handles diagnostic responses containing prohibited numeric character references without altering Raw content.
@@ -63,6 +63,7 @@ No Phase 1, Phase 2, or Phase 3 feature set is complete yet. Work completed sinc
 - The Fiddler-style workspace presentation is split into focused `SessionTable` and `SessionDetailPanel` components while `Home.razor` remains the import and composition root.
 - A collapsible trace summary now reports trace timing, severity and HTTP status distributions, findings, slow sessions, failing hosts, high-impact rule IDs, slowest sessions, and authentication classifications.
 - Structured filters now combine with free text using explicit AND/OR semantics, display removable chips and visible counts, reconcile selection when results change, and support summary-driven drill-through.
+- The detail workspace now navigates previous and next visible matches, elevates recognized diagnostic headers, and copies URLs, headers, bodies, and finding summaries with explicit success, failure, and truncation-aware feedback.
 
 ### Phase 1 — Support-engineer triage essentials
 
@@ -300,7 +301,7 @@ The JSON schema must be deterministic so it can support future CLI or MCP consum
 2. [x] Introduce workspace state and split the large page into focused components without intentionally changing behavior.
 3. [x] Add the trace summary service and summary panel.
 4. [x] Add structured filters, active chips, counts, and summary drill-through.
-5. Add previous/next navigation, diagnostic-header emphasis, and clipboard actions.
+5. [x] Add previous/next navigation, diagnostic-header emphasis, and clipboard actions.
 6. Add the redaction service and comprehensive redaction tests before implementing export UI.
 7. Add versioned JSON export.
 8. Add self-contained static HTML export.
@@ -445,9 +446,9 @@ The JSON schema must be deterministic so it can support future CLI or MCP consum
 #### 14. Add UI and integration regression coverage
 
 - [ ] Add component tests for filters, clear actions, sorting, session selection, request/response view modes, password flow, import warnings, and export redaction.
-  - Partial: all currently implemented component workflows are covered, including import/password states, free-text and structured filtering, chips, summary drill-through, selection reconciliation, sorting, finding details, request/response modes, version states, JSON/XML formatting, HTML sandboxing, images, binary fallbacks, and truncation messaging. Import warnings and export redaction remain pending because those product features are not implemented.
+  - Partial: all currently implemented component workflows are covered, including import/password states, free-text and structured filtering, chips, summary drill-through, selection reconciliation, matching-session navigation, diagnostic headers, clipboard success/failure and truncation feedback, sorting, finding details, request/response modes, version states, JSON/XML formatting, HTML sandboxing, images, binary fallbacks, and truncation messaging. Import warnings and export redaction remain pending because those product features are not implemented.
 - [ ] Add browser-level smoke tests for opening representative HAR, unencrypted SAZ, and encrypted SAZ files.
-  - Partial: the packaged Chromium test covers HAR upload, session rendering, filtering, filter clearing, and request-only detail selection. SAZ browser coverage remains planned.
+  - Partial: the packaged Chromium test covers HAR upload, session rendering, filtering, filter clearing, diagnostic headers, clipboard readback, matching-session navigation, and request-only detail selection. SAZ browser coverage remains planned.
 - [ ] Test accessibility semantics and keyboard workflows for the main investigation path.
 - [x] Retain importer safety, ruleset determinism, and secure HTML/XML preview tests.
 

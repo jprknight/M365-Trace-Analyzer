@@ -54,7 +54,16 @@ public sealed class StandaloneApplicationTests
             using var playwright = await Playwright.CreateAsync();
             await using var browser = await playwright.Chromium.LaunchAsync(
                 new BrowserTypeLaunchOptions { Headless = true });
-            var page = await browser.NewPageAsync();
+            await using var context = await browser.NewContextAsync(
+                new BrowserNewContextOptions
+                {
+                    Permissions =
+                    [
+                        "clipboard-read",
+                        "clipboard-write"
+                    ]
+                });
+            var page = await context.NewPageAsync();
 
             await page.GotoAsync(
                 url,
@@ -64,6 +73,35 @@ public sealed class StandaloneApplicationTests
             await page.WaitForTimeoutAsync(500);
             await page.Locator("input[type=file]").First.SetInputFilesAsync(harPath);
             await WaitForRowCountWithDiagnosticsAsync(page, 2);
+
+            var diagnosticHeader = page
+                .Locator(".diagnostic-header-row")
+                .Filter(new LocatorFilterOptions { HasText = "request-id" });
+            await diagnosticHeader.WaitForAsync();
+            Assert.Contains("e2e-request-1", await diagnosticHeader.InnerTextAsync());
+
+            await page.Locator("button[data-copy-action=url]").ClickAsync();
+            await page.Locator(".copy-status.success").WaitForAsync();
+            Assert.Equal(
+                "URL copied.",
+                await page.Locator(".copy-status.success").InnerTextAsync());
+            Assert.Equal(
+                "https://outlook.office.com/owa/",
+                await page.EvaluateAsync<string>(
+                    "() => navigator.clipboard.readText()"));
+
+            await page
+                .Locator("button[data-session-navigation=next]")
+                .ClickAsync();
+            await page
+                .Locator("tbody tr.selected[data-session-id='2']")
+                .WaitForAsync();
+            Assert.True(await page
+                .Locator("button[data-session-navigation=next]")
+                .IsDisabledAsync());
+            Assert.False(await page
+                .Locator("button[data-session-navigation=previous]")
+                .IsDisabledAsync());
 
             var severityMenu = page.Locator(
                 "details[data-filter-menu=severity]");
@@ -258,7 +296,10 @@ public sealed class StandaloneApplicationTests
                 "request": {
                   "method": "GET",
                   "url": "https://outlook.office.com/owa/",
-                  "headers": [{ "name": "Accept", "value": "application/json" }]
+                  "headers": [
+                    { "name": "Accept", "value": "application/json" },
+                    { "name": "request-id", "value": "e2e-request-1" }
+                  ]
                 },
                 "response": {
                   "status": 200,
