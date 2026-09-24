@@ -67,7 +67,7 @@ public sealed class HomeTests : IDisposable
         component.WaitForAssertion(() =>
         {
             var summary = component.Find("details.trace-summary");
-            Assert.True(summary.HasAttribute("open"));
+            Assert.False(summary.HasAttribute("open"));
             Assert.Contains("3 visible of 3", summary.TextContent);
             Assert.Contains("Sessions with findings", summary.TextContent);
             Assert.Contains("Failing hosts", summary.TextContent);

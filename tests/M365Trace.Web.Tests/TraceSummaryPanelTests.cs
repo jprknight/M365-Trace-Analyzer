@@ -51,7 +51,7 @@ public sealed class TraceSummaryPanelTests : IDisposable
                 .Add(parameter => parameter.Summary, summary)
                 .Add(parameter => parameter.VisibleSessionCount, 9));
 
-        Assert.True(component.Find("details").HasAttribute("open"));
+        Assert.False(component.Find("details").HasAttribute("open"));
         Assert.Contains("9 visible of 12", component.Markup);
         Assert.Contains("2.0 min", component.Markup);
         Assert.Contains("api.example.test", component.Markup);
