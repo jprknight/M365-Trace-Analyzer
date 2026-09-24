@@ -57,18 +57,30 @@
                              SelectedValues="Query.Hosts"
                              SelectionChanged="SetHostsAsync" />
 
-            <label class="filter-select-label">
-                <span>Duration</span>
-                <select aria-label="Duration filter"
-                        value="@GetDurationValue()"
-                        @onchange="SetDurationAsync">
-                    <option value="">Any duration</option>
+            <details class="filter-menu" data-filter-menu="duration">
+                <summary>
+                    Duration @FormatCount(Query.Duration is null ? 0 : 1)
+                </summary>
+                <div class="filter-menu-content">
+                    <label>
+                        <input type="radio"
+                               name="duration-filter"
+                               checked="@(Query.Duration is null)"
+                               @onchange="() => SetDurationAsync(null)" />
+                        Any duration
+                    </label>
                     @foreach (var duration in DurationOptions)
                     {
-                        <option value="@duration">@GetDurationLabel(duration)</option>
+                        <label>
+                            <input type="radio"
+                                   name="duration-filter"
+                                   checked="@(Query.Duration == duration)"
+                                   @onchange="() => SetDurationAsync(duration)" />
+                            @GetDurationLabel(duration)
+                        </label>
                     }
-                </select>
-            </label>
+                </div>
+            </details>
 
             <FilterValueMenu Title="Session type"
                              MenuName="session-type"
@@ -280,16 +292,8 @@
     private Task SetFindingRuleIdsAsync(IReadOnlyList<string> values) =>
         QueryChanged.InvokeAsync(Query with { FindingRuleIds = values });
 
-    private Task SetDurationAsync(ChangeEventArgs args)
-    {
-        var value = args.Value?.ToString();
-        var duration = Enum.TryParse<SessionDurationFilter>(
-            value,
-            out var parsed)
-                ? parsed
-                : (SessionDurationFilter?)null;
-        return QueryChanged.InvokeAsync(Query with { Duration = duration });
-    }
+    private Task SetDurationAsync(SessionDurationFilter? duration) =>
+        QueryChanged.InvokeAsync(Query with { Duration = duration });
 
     private Task SetFindingFilterAsync(ChangeEventArgs args)
     {
@@ -326,9 +330,6 @@
         };
         return QueryChanged.InvokeAsync(query);
     }
-
-    private string GetDurationValue() =>
-        Query.Duration?.ToString() ?? string.Empty;
 
     private string GetFindingValue() =>
         Query.Findings?.ToString() ?? string.Empty;
