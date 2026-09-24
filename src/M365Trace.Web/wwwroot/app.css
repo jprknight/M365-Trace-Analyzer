@@ -296,11 +296,35 @@ main {
     padding: 0.85rem 1rem;
     border-bottom: 1px solid transparent;
     list-style-position: inside;
-    font-size: 0.9rem;
+    font-size: 1rem;
 }
 
 .trace-summary[open] > summary {
     border-bottom-color: #30363d;
+}
+
+.trace-summary-heading {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.6rem;
+}
+
+.trace-summary-expand-hint {
+    color: #8b949e;
+    font-size: 0.72rem;
+    font-weight: 500;
+}
+
+.trace-summary-expand-hint .when-open {
+    display: none;
+}
+
+.trace-summary[open] .trace-summary-expand-hint .when-collapsed {
+    display: none;
+}
+
+.trace-summary[open] .trace-summary-expand-hint .when-open {
+    display: inline;
 }
 
 .trace-summary-caption {
