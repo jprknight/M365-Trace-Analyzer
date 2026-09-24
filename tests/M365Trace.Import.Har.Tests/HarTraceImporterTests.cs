@@ -1,4 +1,5 @@
 using System.Text;
+using M365Trace.Core;
 using M365Trace.Import.Har;
 
 namespace M365Trace.Import.Har.Tests;
@@ -22,6 +23,8 @@ public sealed class HarTraceImporterTests
         Assert.Equal(TimeSpan.FromMilliseconds(1250.5), session.Duration);
         Assert.Contains(session.RequestHeaders, header => header.Name == "Accept");
         Assert.Contains("FederatedSTSUnreachable", session.ResponseContent?.Text);
+        Assert.Equal(TraceSourceFormat.Har, session.Metadata.Source?.Format);
+        Assert.Equal("1", session.Metadata.Source?.SessionReference);
     }
 
     [Fact]

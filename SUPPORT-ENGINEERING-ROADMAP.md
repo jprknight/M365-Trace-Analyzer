@@ -49,10 +49,10 @@ Status markers in this document apply only where the complete listed outcome has
 - `[x]` Completed and merged into `master`.
 - `[ ]` Planned or only partially implemented. Partial coverage is described inline.
 
-Phase 1 is complete. Phase 2 and Phase 3 remain planned:
+Phase 1 is complete. Phase 2 is underway, and Phase 3 remains planned:
 
 - Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
-- CI now validates formatting, warning-free builds, 169 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- CI now validates formatting, warning-free builds, 173 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
 - A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, diagnostic headers, and request-only detail selection.
 - CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
 - Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
@@ -265,7 +265,7 @@ If the selected session is removed from the visible result:
 
 ### Phase 2 — Import fidelity and explainability
 
-#### 5. Expand the normalized trace model
+#### 5. [x] Expand the normalized trace model
 
 - Add optional fields for HTTP protocol/version, request and response sizes, client/server endpoint, process information, connection ID, TLS protocol/cipher/certificate metadata, redirect target, cache state, and source-specific metadata.
 - Add a structured timing model covering blocked/queued, DNS, connect, TLS, send, wait, receive, and total duration.
