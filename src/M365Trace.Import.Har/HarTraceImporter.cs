@@ -151,7 +151,13 @@ public sealed class HarTraceImporter : ITraceImporter
             RequestHeaders = ParseHeaders(request, "headers"),
             ResponseHeaders = ParseHeaders(response, "headers"),
             RequestContent = ParseContent(request, "postData"),
-            ResponseContent = ParseContent(response, "content")
+            ResponseContent = ParseContent(response, "content"),
+            Metadata = new TraceSessionMetadata
+            {
+                Source = new TraceSourceMetadata(
+                    TraceSourceFormat.Har,
+                    id.ToString(CultureInfo.InvariantCulture))
+            }
         };
     }
 

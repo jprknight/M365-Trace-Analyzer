@@ -259,7 +259,13 @@ public sealed partial class SazTraceImporter : ITraceImporter
             RequestHeaders = request.Headers,
             ResponseHeaders = response.Headers,
             RequestContent = CreateContent(request.Body, request.Headers),
-            ResponseContent = CreateContent(response.Body, response.Headers)
+            ResponseContent = CreateContent(response.Body, response.Headers),
+            Metadata = new TraceSessionMetadata
+            {
+                Source = new TraceSourceMetadata(
+                    TraceSourceFormat.Saz,
+                    sessionId.ToString(CultureInfo.InvariantCulture))
+            }
         };
     }
 

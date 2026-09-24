@@ -45,6 +45,7 @@ dotnet test .\M365-Trace-Analyzer.sln
 ## Projects
 
 - `M365Trace.Core` - normalized trace models
+- `M365Trace.Core.Tests` - normalized metadata and compatibility tests
 - `M365Trace.Import.Har` - bounded HAR parsing and validation
 - `M365Trace.Import.Saz` - bounded SAZ/ZIP and raw HTTP session parsing
 - `M365Trace.Rules` - host-independent analysis rule contracts

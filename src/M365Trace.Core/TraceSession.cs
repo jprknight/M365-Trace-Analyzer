@@ -24,5 +24,8 @@ public sealed record TraceSession
 
     public TraceContent? ResponseContent { get; init; }
 
+    public TraceSessionMetadata Metadata { get; init; } =
+        TraceSessionMetadata.Empty;
+
     public TraceAnalysisResult Analysis { get; init; } = TraceAnalysisResult.Empty;
 }

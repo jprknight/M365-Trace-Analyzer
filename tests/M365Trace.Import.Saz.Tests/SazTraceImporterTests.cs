@@ -54,6 +54,8 @@ public sealed class SazTraceImporterTests
         Assert.Equal(503, session.StatusCode);
         Assert.Equal(TimeSpan.FromMilliseconds(1250), session.Duration);
         Assert.Equal("FederatedSTSUnreachable", session.ResponseContent?.Text?.Trim());
+        Assert.Equal(TraceSourceFormat.Saz, session.Metadata.Source?.Format);
+        Assert.Equal("1", session.Metadata.Source?.SessionReference);
     }
 
     [Fact]
