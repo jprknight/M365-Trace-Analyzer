@@ -25,6 +25,7 @@ public sealed class HomeTests : IDisposable
         _context.Services.AddSingleton(
             new VersionUpdateService(
                 new StubHttpClientFactory(_httpHandler)));
+        _context.Services.AddSingleton<SessionQueryService>();
     }
 
     [Fact]

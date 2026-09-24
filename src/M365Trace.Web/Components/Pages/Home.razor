@@ -2,6 +2,7 @@
 @inject IEnumerable<ITraceImporter> TraceImporters
 @inject TraceAnalysisEngine AnalysisEngine
 @inject M365Trace.Web.Services.VersionUpdateService VersionUpdateService
+@inject M365Trace.Web.Services.SessionQueryService SessionQueryService
 
 <PageTitle>M365 Trace Analyzer</PageTitle>
 
@@ -87,7 +88,7 @@
     </section>
 }
 
-@if (sessions.Count == 0 && pendingFile is null && !isLoading)
+@if (workspace.Sessions.Count == 0 && pendingFile is null && !isLoading)
 {
     <section class="empty-state">
         <label class="file-button empty-file-button">
@@ -99,14 +100,14 @@
         <p>Select a HAR file exported from browser developer tools or a Fiddler Session Archive.</p>
     </section>
 }
-else if (sessions.Count > 0)
+else if (workspace.Sessions.Count > 0)
 {
     <section class="workspace">
         <div class="session-panel">
             <div class="panel-heading">
                 <div>
-                    <h2>@fileName</h2>
-                    <p>@sessions.Count.ToString("N0") sessions</p>
+                    <h2>@workspace.FileName</h2>
+                    <p>@workspace.Sessions.Count.ToString("N0") sessions</p>
                 </div>
                 <div class="search-box-container">
                     <input class="search-box"
@@ -171,7 +172,7 @@ else if (sessions.Count > 0)
                     <tbody>
                         @foreach (var session in FilteredSessions)
                         {
-                            <tr class="@(selectedSession?.Id == session.Id ? "selected" : null)"
+                            <tr class="@(workspace.SelectedSession?.Id == session.Id ? "selected" : null)"
                                 @onclick="() => SelectSession(session)">
                                 <td>@session.Id</td>
                                 <td>
@@ -192,34 +193,34 @@ else if (sessions.Count > 0)
         </div>
 
         <aside class="detail-panel">
-            @if (selectedSession is null)
+            @if (workspace.SelectedSession is null)
             {
                 <div class="detail-placeholder">Select a session to inspect its request and response.</div>
             }
             else
             {
-                @if (selectedSession.Analysis.HasFindings)
+                @if (workspace.SelectedSession.Analysis.HasFindings)
                 {
-                    <section class="analysis-section @GetAnalysisSeverityClass(selectedSession.Analysis.Severity)">
+                    <section class="analysis-section @GetAnalysisSeverityClass(workspace.SelectedSession.Analysis.Severity)">
                         <div class="analysis-heading">
                             <div>
                                 <p class="eyebrow">Ruleset analysis</p>
-                                <h3>@GetSeverityLabel(selectedSession.Analysis.Severity)</h3>
+                                <h3>@GetSeverityLabel(workspace.SelectedSession.Analysis.Severity)</h3>
                             </div>
-                            <span class="severity-badge large @GetSeverityClass(selectedSession.Analysis.Severity)">
-                                @((int?)selectedSession.Analysis.Severity)
+                            <span class="severity-badge large @GetSeverityClass(workspace.SelectedSession.Analysis.Severity)">
+                                @((int?)workspace.SelectedSession.Analysis.Severity)
                             </span>
                         </div>
 
-                        @if (!string.IsNullOrWhiteSpace(selectedSession.Analysis.SessionType))
+                        @if (!string.IsNullOrWhiteSpace(workspace.SelectedSession.Analysis.SessionType))
                         {
                             <div class="classification-row">
                                 <span>Session type</span>
-                                <strong>@selectedSession.Analysis.SessionType</strong>
+                                <strong>@workspace.SelectedSession.Analysis.SessionType</strong>
                             </div>
                         }
 
-                        @foreach (var finding in selectedSession.Analysis.Findings)
+                        @foreach (var finding in workspace.SelectedSession.Analysis.Findings)
                         {
                             <article class="finding-card @GetAnalysisSeverityClass(finding.Severity)">
                                 <h4>@finding.Title</h4>
@@ -265,17 +266,17 @@ else if (sessions.Count > 0)
                 }
 
                 <div class="detail-heading">
-                    <span class="status-code @GetStatusClass(selectedSession.StatusCode)">@selectedSession.StatusCode</span>
+                    <span class="status-code @GetStatusClass(workspace.SelectedSession.StatusCode)">@workspace.SelectedSession.StatusCode</span>
                     <div>
-                        <h2>@selectedSession.Method @selectedSession.Url.Host</h2>
-                        <p>@selectedSession.Url</p>
+                        <h2>@workspace.SelectedSession.Method @workspace.SelectedSession.Url.Host</h2>
+                        <p>@workspace.SelectedSession.Url</p>
                     </div>
                 </div>
 
                 <div class="detail-metrics">
-                    <div><span>Started</span><strong>@selectedSession.StartedAt.ToLocalTime().ToString("G")</strong></div>
-                    <div><span>Duration</span><strong>@FormatDuration(selectedSession.Duration)</strong></div>
-                    <div><span>Status</span><strong>@selectedSession.StatusText</strong></div>
+                    <div><span>Started</span><strong>@workspace.SelectedSession.StartedAt.ToLocalTime().ToString("G")</strong></div>
+                    <div><span>Duration</span><strong>@FormatDuration(workspace.SelectedSession.Duration)</strong></div>
+                    <div><span>Status</span><strong>@workspace.SelectedSession.StatusText</strong></div>
                 </div>
 
                 <div class="traffic-view-selector"
@@ -298,16 +299,16 @@ else if (sessions.Count > 0)
                 @if (trafficView != DetailTrafficView.Response)
                 {
                     <details open>
-                        <summary>Request headers (@selectedSession.RequestHeaders.Count)</summary>
-                        <div class="header-list">@RenderHeaders(selectedSession.RequestHeaders)</div>
+                        <summary>Request headers (@workspace.SelectedSession.RequestHeaders.Count)</summary>
+                        <div class="header-list">@RenderHeaders(workspace.SelectedSession.RequestHeaders)</div>
                     </details>
 
-                    @if (selectedSession.RequestContent is not null)
+                    @if (workspace.SelectedSession.RequestContent is not null)
                     {
                         <details>
                             <summary>Request body</summary>
-                            <BodyInspector @key="@($"request-{selectedSession.Id}")"
-                                           Content="selectedSession.RequestContent" />
+                            <BodyInspector @key="@($"request-{workspace.SelectedSession.Id}")"
+                                           Content="workspace.SelectedSession.RequestContent" />
                         </details>
                     }
                 }
@@ -315,16 +316,16 @@ else if (sessions.Count > 0)
                 @if (trafficView != DetailTrafficView.Request)
                 {
                     <details open>
-                        <summary>Response headers (@selectedSession.ResponseHeaders.Count)</summary>
-                        <div class="header-list">@RenderHeaders(selectedSession.ResponseHeaders)</div>
+                        <summary>Response headers (@workspace.SelectedSession.ResponseHeaders.Count)</summary>
+                        <div class="header-list">@RenderHeaders(workspace.SelectedSession.ResponseHeaders)</div>
                     </details>
 
-                    @if (selectedSession.ResponseContent is not null)
+                    @if (workspace.SelectedSession.ResponseContent is not null)
                     {
                         <details open>
                             <summary>Response body</summary>
-                            <BodyInspector @key="@($"response-{selectedSession.Id}")"
-                                           Content="selectedSession.ResponseContent" />
+                            <BodyInspector @key="@($"response-{workspace.SelectedSession.Id}")"
+                                           Content="workspace.SelectedSession.ResponseContent" />
                         </details>
                     }
                 }
@@ -336,85 +337,47 @@ else if (sessions.Count > 0)
 @code {
     private const long MaximumBrowserFileSize = HarImportOptions.DefaultMaximumFileSize;
 
-    private readonly List<TraceSession> sessions = [];
-    private TraceSession? selectedSession;
+    private M365Trace.Web.Services.TraceWorkspaceState workspace = null!;
     private string? errorMessage;
-    private string? fileName;
-    private string filterText = string.Empty;
     private string archivePassword = string.Empty;
     private bool isLoading;
     private IBrowserFile? pendingFile;
     private ITraceImporter? pendingImporter;
     private M365Trace.Web.Services.VersionCheckResult? versionCheck;
-    private SessionSortColumn sortColumn = SessionSortColumn.Id;
-    private bool sortAscending = true;
     private DetailTrafficView trafficView = DetailTrafficView.Both;
+
+    private string filterText
+    {
+        get => workspace.Query.FreeText;
+        set => workspace.SetFilter(value);
+    }
 
     protected override async Task OnInitializedAsync()
     {
+        workspace = new M365Trace.Web.Services.TraceWorkspaceState(
+            SessionQueryService);
         versionCheck = await VersionUpdateService.CheckForUpdatesAsync();
     }
 
-    private IEnumerable<TraceSession> FilteredSessions
-    {
-        get
-        {
-            IEnumerable<TraceSession> filteredSessions =
-                string.IsNullOrWhiteSpace(filterText)
-                    ? sessions
-                    : sessions.Where(session =>
-                        MatchesFilter(session, filterText.Trim()));
+    private IReadOnlyList<TraceSession> FilteredSessions =>
+        workspace.VisibleSessions;
 
-            return SortSessions(filteredSessions);
-        }
+    private void SetSort(M365Trace.Web.Services.SessionSortColumn column)
+    {
+        workspace.SetSort(column);
     }
 
-    private IEnumerable<TraceSession> SortSessions(
-        IEnumerable<TraceSession> source)
-    {
-        Func<TraceSession, object?> selector = sortColumn switch
-        {
-            SessionSortColumn.Id => session => session.Id,
-            SessionSortColumn.Analysis => session =>
-                (int?)session.Analysis.Severity ?? -1,
-            SessionSortColumn.Status => session => session.StatusCode,
-            SessionSortColumn.Method => session => session.Method,
-            SessionSortColumn.Host => session => session.Url.Host,
-            SessionSortColumn.Path => session => session.Url.PathAndQuery,
-            SessionSortColumn.Duration => session => session.Duration.Ticks,
-            _ => session => session.Id
-        };
-
-        return sortAscending
-            ? source.OrderBy(selector, SessionSortValueComparer.Instance)
-                .ThenBy(session => session.Id)
-            : source.OrderByDescending(
-                    selector,
-                    SessionSortValueComparer.Instance)
-                .ThenBy(session => session.Id);
-    }
-
-    private void SetSort(SessionSortColumn column)
-    {
-        if (sortColumn == column)
-        {
-            sortAscending = !sortAscending;
-            return;
-        }
-
-        sortColumn = column;
-        sortAscending = true;
-    }
-
-    private string GetSortButtonClass(SessionSortColumn column) =>
-        sortColumn == column
-            ? $"sort-button active {(sortAscending ? "ascending" : "descending")}"
+    private string GetSortButtonClass(
+        M365Trace.Web.Services.SessionSortColumn column) =>
+        workspace.Query.SortColumn == column
+            ? $"sort-button active {(workspace.Query.SortAscending ? "ascending" : "descending")}"
             : "sort-button";
 
-    private string GetAriaSort(SessionSortColumn column) =>
-        sortColumn != column
+    private string GetAriaSort(
+        M365Trace.Web.Services.SessionSortColumn column) =>
+        workspace.Query.SortColumn != column
             ? "none"
-            : sortAscending
+            : workspace.Query.SortAscending
                 ? "ascending"
                 : "descending";
 
@@ -423,40 +386,13 @@ else if (sessions.Count > 0)
             ? "traffic-view-button active"
             : "traffic-view-button";
 
-    private static bool MatchesFilter(TraceSession session, string filter)
-    {
-        var analysis = session.Analysis;
-
-        return ContainsFilter(session.Url.AbsoluteUri, filter)
-            || ContainsFilter(session.Url.Host, filter)
-            || ContainsFilter(session.Url.PathAndQuery, filter)
-            || ContainsFilter(session.Method, filter)
-            || ContainsFilter(session.StatusCode.ToString(), filter)
-            || ContainsFilter(session.StatusText, filter)
-            || ContainsFilter(GetSeverityLabel(analysis.Severity), filter)
-            || ContainsFilter(analysis.SessionType, filter)
-            || ContainsFilter(analysis.Authentication, filter)
-            || ContainsFilter(analysis.ResponseServer, filter)
-            || analysis.Findings.Any(finding =>
-                ContainsFilter(finding.RuleId, filter)
-                || ContainsFilter(finding.Title, filter)
-                || ContainsFilter(finding.Description, filter)
-                || ContainsFilter(finding.Recommendation, filter)
-                || ContainsFilter(finding.Evidence, filter));
-    }
-
-    private static bool ContainsFilter(string? value, string filter) =>
-        value?.Contains(filter, StringComparison.OrdinalIgnoreCase) == true;
-
-    private void ClearFilter() => filterText = string.Empty;
+    private void ClearFilter() => workspace.ClearFilter();
 
     private async Task LoadTraceAsync(InputFileChangeEventArgs args)
     {
         isLoading = true;
         errorMessage = null;
-        sessions.Clear();
-        selectedSession = null;
-        fileName = null;
+        workspace.ClearSessions();
         archivePassword = string.Empty;
         pendingFile = null;
         pendingImporter = null;
@@ -532,10 +468,10 @@ else if (sessions.Count > 0)
         await using var stream = file.OpenReadStream(MaximumBrowserFileSize);
         var importedSessions = await importer.ImportAsync(stream, options);
 
-        sessions.AddRange(importedSessions.Select(session =>
-            session with { Analysis = AnalysisEngine.Analyze(session) }));
-        selectedSession = sessions.FirstOrDefault();
-        fileName = file.Name;
+        workspace.ReplaceSessions(
+            file.Name,
+            importedSessions.Select(session =>
+                session with { Analysis = AnalysisEngine.Analyze(session) }));
         pendingFile = null;
         pendingImporter = null;
     }
@@ -545,13 +481,13 @@ else if (sessions.Count > 0)
         archivePassword = string.Empty;
         pendingFile = null;
         pendingImporter = null;
-        fileName = null;
+        workspace.ClearSessions();
         errorMessage = null;
     }
 
     private void SelectSession(TraceSession session)
     {
-        selectedSession = session;
+        workspace.SelectSession(session);
     }
 
     private static string GetStatusClass(int statusCode) => statusCode switch
@@ -651,17 +587,6 @@ else if (sessions.Count > 0)
         }
     };
 
-    private enum SessionSortColumn
-    {
-        Id,
-        Analysis,
-        Status,
-        Method,
-        Host,
-        Path,
-        Duration
-    }
-
     private enum DetailTrafficView
     {
         Request,
@@ -669,35 +594,4 @@ else if (sessions.Count > 0)
         Both
     }
 
-    private sealed class SessionSortValueComparer : IComparer<object?>
-    {
-        public static SessionSortValueComparer Instance { get; } = new();
-
-        public int Compare(object? left, object? right)
-        {
-            if (ReferenceEquals(left, right))
-            {
-                return 0;
-            }
-
-            if (left is null)
-            {
-                return -1;
-            }
-
-            if (right is null)
-            {
-                return 1;
-            }
-
-            if (left is string leftText && right is string rightText)
-            {
-                return StringComparer.OrdinalIgnoreCase.Compare(
-                    leftText,
-                    rightText);
-            }
-
-            return Comparer<object>.Default.Compare(left, right);
-        }
-    }
 }
