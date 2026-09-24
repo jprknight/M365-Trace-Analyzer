@@ -106,19 +106,26 @@ else if (workspace.Sessions.Count > 0)
     @if (traceSummary is not null)
     {
         <TraceSummaryPanel Summary="traceSummary"
-                           VisibleSessionCount="workspace.VisibleSessions.Count" />
+                           VisibleSessionCount="workspace.VisibleSessions.Count"
+                           ClearAllRequested="ClearAllFilters"
+                           SeveritySelected="ApplySeverityFilter"
+                           StatusSelected="ApplyStatusFilter"
+                           FindingsSelected="ApplyFindingsFilter"
+                           HostSelected="ApplyHostFilter"
+                           FindingSelected="ApplyFindingFilter"
+                           AuthenticationSelected="ApplyAuthenticationFilter"
+                           SessionSelected="SelectSessionById" />
     }
 
     <section class="workspace">
         <SessionTable FileName="@workspace.FileName"
                       TotalSessionCount="workspace.Sessions.Count"
+                      AllSessions="workspace.Sessions"
                       Sessions="FilteredSessions"
                       SelectedSessionId="workspace.SelectedSession?.Id"
-                      FilterText="@filterText"
-                      FilterTextChanged="SetFilterText"
-                      SortColumn="workspace.Query.SortColumn"
-                      SortAscending="workspace.Query.SortAscending"
-                      FilterCleared="ClearFilter"
+                      Query="workspace.Query"
+                      QueryChanged="SetQuery"
+                      ClearAllRequested="ClearAllFilters"
                       SortChanged="SetSort"
                       SessionSelected="SelectSession" />
         <SessionDetailPanel Session="workspace.SelectedSession"
@@ -140,8 +147,6 @@ else if (workspace.Sessions.Count > 0)
     private M365Trace.Web.Services.VersionCheckResult? versionCheck;
     private DetailTrafficView trafficView = DetailTrafficView.Both;
 
-    private string filterText => workspace.Query.FreeText;
-
     protected override async Task OnInitializedAsync()
     {
         workspace = new M365Trace.Web.Services.TraceWorkspaceState(
@@ -157,9 +162,52 @@ else if (workspace.Sessions.Count > 0)
         workspace.SetSort(column);
     }
 
-    private void ClearFilter() => workspace.ClearFilter();
+    private void SetQuery(M365Trace.Web.Services.SessionQuery query) =>
+        workspace.SetQuery(query);
 
-    private void SetFilterText(string value) => workspace.SetFilter(value);
+    private void ClearAllFilters() => workspace.ClearAllFilters();
+
+    private void ApplySeverityFilter(
+        M365Trace.Web.Services.TraceSeverityFilter severity) =>
+        workspace.SetQuery(workspace.Query with { Severities = [severity] });
+
+    private void ApplyStatusFilter(
+        M365Trace.Web.Services.TraceStatusFamily status) =>
+        workspace.SetQuery(workspace.Query with
+        {
+            StatusFamilies = [status],
+            StatusCodes = []
+        });
+
+    private void ApplyFindingsFilter(
+        M365Trace.Web.Services.SessionFindingFilter findings) =>
+        workspace.SetQuery(workspace.Query with { Findings = findings });
+
+    private void ApplyHostFilter(string host) =>
+        workspace.SetQuery(workspace.Query with { Hosts = [host] });
+
+    private void ApplyFindingFilter(string ruleId) =>
+        workspace.SetQuery(workspace.Query with
+        {
+            FindingRuleIds = [ruleId]
+        });
+
+    private void ApplyAuthenticationFilter(string authentication) =>
+        workspace.SetQuery(workspace.Query with
+        {
+            Authentications = [authentication]
+        });
+
+    private void SelectSessionById(int sessionId)
+    {
+        workspace.ClearAllFilters();
+        var session = workspace.Sessions.FirstOrDefault(candidate =>
+            candidate.Id == sessionId);
+        if (session is not null)
+        {
+            workspace.SelectSession(session);
+        }
+    }
 
     private void SetTrafficView(DetailTrafficView view) => trafficView = view;
 

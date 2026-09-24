@@ -6,10 +6,13 @@
 
     <div class="trace-summary-content">
         <section class="summary-overview" aria-label="Trace overview">
-            <div class="summary-metric">
+            <button type="button"
+                    class="summary-metric summary-filter-button"
+                    title="Clear filters and show all sessions"
+                    @onclick="ClearAllRequested">
                 <span>Sessions</span>
                 <strong>@Summary.TotalSessions.ToString("N0")</strong>
-            </div>
+            </button>
             <div class="summary-metric">
                 <span>Visible</span>
                 <strong>@VisibleSessionCount.ToString("N0")</strong>
@@ -19,51 +22,81 @@
                 <strong>@FormatDuration(Summary.TraceWindow)</strong>
                 <small>@FormatTraceRange()</small>
             </div>
-            <div class="summary-metric">
+            <button type="button"
+                    class="summary-metric summary-filter-button"
+                    disabled="@(Summary.SessionsWithFindings == 0)"
+                    @onclick="() => FindingsSelected.InvokeAsync(SessionFindingFilter.HasFindings)">
                 <span>Sessions with findings</span>
                 <strong>@Summary.SessionsWithFindings.ToString("N0")</strong>
-            </div>
-            <div class="summary-metric">
+            </button>
+            <button type="button"
+                    class="summary-metric summary-filter-button"
+                    disabled="@(Summary.SlowSessions == 0)"
+                    @onclick="() => FindingSelected.InvokeAsync(TraceSummaryService.PerformanceFindingRuleId)">
                 <span>Slow sessions</span>
                 <strong>@Summary.SlowSessions.ToString("N0")</strong>
-            </div>
+            </button>
         </section>
 
         <div class="summary-sections">
             <section class="summary-section" aria-labelledby="severity-summary">
                 <h3 id="severity-summary">Analysis severity</h3>
                 <div class="summary-count-grid">
-                    <div><span>Severe</span><strong>@Summary.Severities.Severe</strong></div>
-                    <div><span>Concerning</span><strong>@Summary.Severities.Concerning</strong></div>
-                    <div><span>Warning</span><strong>@Summary.Severities.Warning</strong></div>
-                    <div><span>Normal</span><strong>@Summary.Severities.Normal</strong></div>
-                    <div><span>Other</span><strong>@Summary.Severities.Other</strong></div>
+                    @RenderSeverityButton(
+                        TraceSeverityFilter.Severe,
+                        Summary.Severities.Severe)
+                    @RenderSeverityButton(
+                        TraceSeverityFilter.Concerning,
+                        Summary.Severities.Concerning)
+                    @RenderSeverityButton(
+                        TraceSeverityFilter.Warning,
+                        Summary.Severities.Warning)
+                    @RenderSeverityButton(
+                        TraceSeverityFilter.Normal,
+                        Summary.Severities.Normal)
+                    @RenderSeverityButton(
+                        TraceSeverityFilter.Other,
+                        Summary.Severities.Other)
                 </div>
             </section>
 
             <section class="summary-section" aria-labelledby="status-summary">
                 <h3 id="status-summary">HTTP status</h3>
                 <div class="summary-count-grid">
-                    <div><span>No response</span><strong>@Summary.Statuses.NoResponse</strong></div>
-                    <div><span>2xx</span><strong>@Summary.Statuses.Success</strong></div>
-                    <div><span>3xx</span><strong>@Summary.Statuses.Redirect</strong></div>
-                    <div><span>4xx</span><strong>@Summary.Statuses.ClientError</strong></div>
-                    <div><span>5xx</span><strong>@Summary.Statuses.ServerError</strong></div>
+                    @RenderStatusButton(
+                        TraceStatusFamily.NoResponse,
+                        Summary.Statuses.NoResponse)
+                    @RenderStatusButton(
+                        TraceStatusFamily.Success,
+                        Summary.Statuses.Success)
+                    @RenderStatusButton(
+                        TraceStatusFamily.Redirect,
+                        Summary.Statuses.Redirect)
+                    @RenderStatusButton(
+                        TraceStatusFamily.ClientError,
+                        Summary.Statuses.ClientError)
+                    @RenderStatusButton(
+                        TraceStatusFamily.ServerError,
+                        Summary.Statuses.ServerError)
                     @if (Summary.Statuses.Other > 0)
                     {
-                        <div><span>Other</span><strong>@Summary.Statuses.Other</strong></div>
+                        @RenderStatusButton(
+                            TraceStatusFamily.Other,
+                            Summary.Statuses.Other)
                     }
                 </div>
             </section>
 
             <SummaryRankedList Title="Failing hosts"
                                EmptyText="No failing hosts observed."
-                               Items="FailingHostItems" />
+                               Items="FailingHostItems"
+                               ItemSelected="SelectHostAsync" />
 
             <SummaryRankedList Title="High-impact findings"
                                EmptyText="No concerning or severe findings."
                                Items="HighImpactFindingItems"
-                               UseCodeLabels="true" />
+                               UseCodeLabels="true"
+                               ItemSelected="SelectFindingAsync" />
 
             <section class="summary-section" aria-labelledby="slowest-summary">
                 <h3 id="slowest-summary">Slowest sessions</h3>
@@ -77,13 +110,17 @@
                         @foreach (var session in Summary.SlowestSessions)
                         {
                             <li>
-                                <span class="summary-session-label"
-                                      title="@($"{session.Method} {session.Host}{session.Path}")">
-                                    #@session.SessionId
-                                    @session.Method
-                                    @session.Host@session.Path
-                                </span>
-                                <strong>@FormatDuration(session.Duration)</strong>
+                                <button type="button"
+                                        class="summary-ranked-button"
+                                        title="@($"{session.Method} {session.Host}{session.Path}")"
+                                        @onclick="() => SessionSelected.InvokeAsync(session.SessionId)">
+                                    <span class="summary-session-label">
+                                        #@session.SessionId
+                                        @session.Method
+                                        @session.Host@session.Path
+                                    </span>
+                                    <strong>@FormatDuration(session.Duration)</strong>
+                                </button>
                             </li>
                         }
                     </ol>
@@ -92,7 +129,8 @@
 
             <SummaryRankedList Title="Authentication"
                                EmptyText="No authentication classifications."
-                               Items="AuthenticationItems" />
+                               Items="AuthenticationItems"
+                               ItemSelected="SelectAuthenticationAsync" />
         </div>
     </div>
 </details>
@@ -103,6 +141,30 @@
 
     [Parameter]
     public int VisibleSessionCount { get; set; }
+
+    [Parameter]
+    public EventCallback ClearAllRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<TraceSeverityFilter> SeveritySelected { get; set; }
+
+    [Parameter]
+    public EventCallback<TraceStatusFamily> StatusSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<SessionFindingFilter> FindingsSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<string> HostSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<string> FindingSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<string> AuthenticationSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<int> SessionSelected { get; set; }
 
     private IReadOnlyList<SummaryRankedItem> FailingHostItems =>
         Summary.FailingHosts
@@ -118,6 +180,61 @@
         Summary.AuthenticationTypes
             .Select(item => new SummaryRankedItem(item.Name, item.Count))
             .ToArray();
+
+    private RenderFragment RenderSeverityButton(
+        TraceSeverityFilter severity,
+        int count) => builder =>
+    {
+        builder.OpenElement(0, "button");
+        builder.AddAttribute(1, "type", "button");
+        builder.AddAttribute(2, "class", "summary-count-button");
+        builder.AddAttribute(3, "disabled", count == 0);
+        builder.AddAttribute(
+            4,
+            "onclick",
+            EventCallback.Factory.Create(
+                this,
+                () => SeveritySelected.InvokeAsync(severity)));
+        builder.OpenElement(5, "span");
+        builder.AddContent(6, TraceFilterBar.GetSeverityLabel(severity));
+        builder.CloseElement();
+        builder.OpenElement(7, "strong");
+        builder.AddContent(8, count);
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderStatusButton(
+        TraceStatusFamily family,
+        int count) => builder =>
+    {
+        builder.OpenElement(0, "button");
+        builder.AddAttribute(1, "type", "button");
+        builder.AddAttribute(2, "class", "summary-count-button");
+        builder.AddAttribute(3, "disabled", count == 0);
+        builder.AddAttribute(
+            4,
+            "onclick",
+            EventCallback.Factory.Create(
+                this,
+                () => StatusSelected.InvokeAsync(family)));
+        builder.OpenElement(5, "span");
+        builder.AddContent(6, TraceFilterBar.GetStatusFamilyLabel(family));
+        builder.CloseElement();
+        builder.OpenElement(7, "strong");
+        builder.AddContent(8, count);
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private Task SelectHostAsync(SummaryRankedItem item) =>
+        HostSelected.InvokeAsync(item.Label);
+
+    private Task SelectFindingAsync(SummaryRankedItem item) =>
+        FindingSelected.InvokeAsync(item.Label);
+
+    private Task SelectAuthenticationAsync(SummaryRankedItem item) =>
+        AuthenticationSelected.InvokeAsync(item.Label);
 
     private string FormatTraceRange()
     {

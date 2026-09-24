@@ -1,0 +1,423 @@
+<div class="trace-filter-bar">
+    <div class="filter-toolbar">
+        <div class="filter-controls" aria-label="Structured session filters">
+            <details class="filter-menu" data-filter-menu="severity">
+                <summary>Severity @FormatCount(Query.Severities.Count)</summary>
+                <div class="filter-menu-content">
+                    @foreach (var severity in SeverityOptions)
+                    {
+                        <label>
+                            <input type="checkbox"
+                                   checked="@Query.Severities.Contains(severity)"
+                                   @onchange="() => ToggleSeverityAsync(severity)" />
+                            @GetSeverityLabel(severity)
+                        </label>
+                    }
+                </div>
+            </details>
+
+            <details class="filter-menu" data-filter-menu="status">
+                <summary>Status @FormatCount(StatusFilterCount)</summary>
+                <div class="filter-menu-content">
+                    <strong>Status family</strong>
+                    @foreach (var family in StatusFamilyOptions)
+                    {
+                        <label>
+                            <input type="checkbox"
+                                   checked="@Query.StatusFamilies.Contains(family)"
+                                   @onchange="() => ToggleStatusFamilyAsync(family)" />
+                            @GetStatusFamilyLabel(family)
+                        </label>
+                    }
+                    @if (StatusCodes.Count > 0)
+                    {
+                        <strong>Exact status</strong>
+                        @foreach (var statusCode in StatusCodes)
+                        {
+                            <label>
+                                <input type="checkbox"
+                                       checked="@Query.StatusCodes.Contains(statusCode)"
+                                       @onchange="() => ToggleStatusCodeAsync(statusCode)" />
+                                @statusCode
+                            </label>
+                        }
+                    }
+                </div>
+            </details>
+
+            <FilterValueMenu Title="Method"
+                             MenuName="method"
+                             Options="Methods"
+                             SelectedValues="Query.Methods"
+                             SelectionChanged="SetMethodsAsync" />
+
+            <FilterValueMenu Title="Host"
+                             MenuName="host"
+                             Options="Hosts"
+                             SelectedValues="Query.Hosts"
+                             SelectionChanged="SetHostsAsync" />
+
+            <label class="filter-select-label">
+                <span>Duration</span>
+                <select aria-label="Duration filter"
+                        value="@GetDurationValue()"
+                        @onchange="SetDurationAsync">
+                    <option value="">Any duration</option>
+                    @foreach (var duration in DurationOptions)
+                    {
+                        <option value="@duration">@GetDurationLabel(duration)</option>
+                    }
+                </select>
+            </label>
+
+            <FilterValueMenu Title="Session type"
+                             MenuName="session-type"
+                             Options="SessionTypes"
+                             SelectedValues="Query.SessionTypes"
+                             SelectionChanged="SetSessionTypesAsync" />
+
+            <FilterValueMenu Title="Authentication"
+                             MenuName="authentication"
+                             Options="Authentications"
+                             SelectedValues="Query.Authentications"
+                             SelectionChanged="SetAuthenticationsAsync" />
+
+            <FilterValueMenu Title="Rule"
+                             MenuName="finding-rule"
+                             Options="FindingRuleIds"
+                             SelectedValues="Query.FindingRuleIds"
+                             SelectionChanged="SetFindingRuleIdsAsync"
+                             UseCodeLabels="true" />
+
+            <label class="filter-select-label">
+                <span>Findings</span>
+                <select aria-label="Finding presence filter"
+                        value="@GetFindingValue()"
+                        @onchange="SetFindingFilterAsync">
+                    <option value="">Any</option>
+                    <option value="@SessionFindingFilter.HasFindings">
+                        Has findings
+                    </option>
+                    <option value="@SessionFindingFilter.NoFindings">
+                        No findings
+                    </option>
+                </select>
+            </label>
+        </div>
+
+        <div class="filter-result-count">
+            <strong>@VisibleSessionCount.ToString("N0")</strong>
+            of @TotalSessionCount.ToString("N0") sessions
+        </div>
+    </div>
+
+    <div class="filter-chip-row">
+        @if (FilterChips.Count == 0)
+        {
+            <span class="filter-empty">No structured filters</span>
+        }
+        else
+        {
+            @foreach (var chip in FilterChips)
+            {
+                <button type="button"
+                        class="filter-chip"
+                        title="@($"Remove {chip.Label} filter")"
+                        @onclick="() => RemoveFilterAsync(chip.Category)">
+                    @chip.Label <span aria-hidden="true">&times;</span>
+                </button>
+            }
+        }
+
+        @if (Query.HasFilters)
+        {
+            <button type="button"
+                    class="filter-clear-all"
+                    @onclick="ClearAllRequested">
+                Clear all
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly TraceSeverityFilter[] SeverityOptions =
+        Enum.GetValues<TraceSeverityFilter>();
+    private static readonly TraceStatusFamily[] StatusFamilyOptions =
+        Enum.GetValues<TraceStatusFamily>();
+    private static readonly SessionDurationFilter[] DurationOptions =
+        Enum.GetValues<SessionDurationFilter>();
+
+    [Parameter, EditorRequired]
+    public required IReadOnlyList<TraceSession> AllSessions { get; set; }
+
+    [Parameter, EditorRequired]
+    public required SessionQuery Query { get; set; }
+
+    [Parameter]
+    public int VisibleSessionCount { get; set; }
+
+    [Parameter]
+    public int TotalSessionCount { get; set; }
+
+    [Parameter]
+    public EventCallback<SessionQuery> QueryChanged { get; set; }
+
+    [Parameter]
+    public EventCallback ClearAllRequested { get; set; }
+
+    private int StatusFilterCount =>
+        Query.StatusFamilies.Count + Query.StatusCodes.Count;
+
+    private IReadOnlyList<int> StatusCodes =>
+        AllSessions
+            .Select(session => session.StatusCode)
+            .Distinct()
+            .Order()
+            .ToArray();
+
+    private IReadOnlyList<string> Methods =>
+        GetDistinctValues(AllSessions.Select(session => session.Method));
+
+    private IReadOnlyList<string> Hosts =>
+        GetDistinctValues(AllSessions.Select(session => session.Url.Host));
+
+    private IReadOnlyList<string> SessionTypes =>
+        GetDistinctValues(AllSessions.Select(session =>
+            session.Analysis.SessionType));
+
+    private IReadOnlyList<string> Authentications =>
+        GetDistinctValues(AllSessions.Select(session =>
+            SessionQueryService.NormalizeAuthentication(
+                session.Analysis.Authentication)));
+
+    private IReadOnlyList<string> FindingRuleIds =>
+        GetDistinctValues(AllSessions.SelectMany(session =>
+            session.Analysis.Findings.Select(finding => finding.RuleId)));
+
+    private IReadOnlyList<FilterChip> FilterChips
+    {
+        get
+        {
+            var chips = new List<FilterChip>();
+            AddChip(
+                chips,
+                FilterCategory.Severity,
+                "Severity",
+                Query.Severities.Select(GetSeverityLabel));
+            AddChip(
+                chips,
+                FilterCategory.Status,
+                "Status",
+                Query.StatusFamilies.Select(GetStatusFamilyLabel)
+                    .Concat(Query.StatusCodes.Select(code => code.ToString())));
+            AddChip(chips, FilterCategory.Method, "Method", Query.Methods);
+            AddChip(chips, FilterCategory.Host, "Host", Query.Hosts);
+            if (Query.Duration is not null)
+            {
+                chips.Add(new FilterChip(
+                    FilterCategory.Duration,
+                    $"Duration: {GetDurationLabel(Query.Duration.Value)}"));
+            }
+            AddChip(
+                chips,
+                FilterCategory.SessionType,
+                "Session type",
+                Query.SessionTypes);
+            AddChip(
+                chips,
+                FilterCategory.Authentication,
+                "Authentication",
+                Query.Authentications);
+            AddChip(
+                chips,
+                FilterCategory.FindingRule,
+                "Rule",
+                Query.FindingRuleIds);
+            if (Query.Findings is not null)
+            {
+                chips.Add(new FilterChip(
+                    FilterCategory.Findings,
+                    Query.Findings == SessionFindingFilter.HasFindings
+                        ? "Findings: Has findings"
+                        : "Findings: No findings"));
+            }
+
+            return chips;
+        }
+    }
+
+    private Task ToggleSeverityAsync(TraceSeverityFilter severity) =>
+        QueryChanged.InvokeAsync(Query with
+        {
+            Severities = Toggle(Query.Severities, severity)
+        });
+
+    private Task ToggleStatusFamilyAsync(TraceStatusFamily family) =>
+        QueryChanged.InvokeAsync(Query with
+        {
+            StatusFamilies = Toggle(Query.StatusFamilies, family)
+        });
+
+    private Task ToggleStatusCodeAsync(int statusCode) =>
+        QueryChanged.InvokeAsync(Query with
+        {
+            StatusCodes = Toggle(Query.StatusCodes, statusCode)
+        });
+
+    private Task SetMethodsAsync(IReadOnlyList<string> values) =>
+        QueryChanged.InvokeAsync(Query with { Methods = values });
+
+    private Task SetHostsAsync(IReadOnlyList<string> values) =>
+        QueryChanged.InvokeAsync(Query with { Hosts = values });
+
+    private Task SetSessionTypesAsync(IReadOnlyList<string> values) =>
+        QueryChanged.InvokeAsync(Query with { SessionTypes = values });
+
+    private Task SetAuthenticationsAsync(IReadOnlyList<string> values) =>
+        QueryChanged.InvokeAsync(Query with { Authentications = values });
+
+    private Task SetFindingRuleIdsAsync(IReadOnlyList<string> values) =>
+        QueryChanged.InvokeAsync(Query with { FindingRuleIds = values });
+
+    private Task SetDurationAsync(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        var duration = Enum.TryParse<SessionDurationFilter>(
+            value,
+            out var parsed)
+                ? parsed
+                : (SessionDurationFilter?)null;
+        return QueryChanged.InvokeAsync(Query with { Duration = duration });
+    }
+
+    private Task SetFindingFilterAsync(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        var findings = Enum.TryParse<SessionFindingFilter>(
+            value,
+            out var parsed)
+                ? parsed
+                : (SessionFindingFilter?)null;
+        return QueryChanged.InvokeAsync(Query with { Findings = findings });
+    }
+
+    private Task RemoveFilterAsync(FilterCategory category)
+    {
+        var query = category switch
+        {
+            FilterCategory.Severity => Query with { Severities = [] },
+            FilterCategory.Status => Query with
+            {
+                StatusFamilies = [],
+                StatusCodes = []
+            },
+            FilterCategory.Method => Query with { Methods = [] },
+            FilterCategory.Host => Query with { Hosts = [] },
+            FilterCategory.Duration => Query with { Duration = null },
+            FilterCategory.SessionType => Query with { SessionTypes = [] },
+            FilterCategory.Authentication => Query with
+            {
+                Authentications = []
+            },
+            FilterCategory.FindingRule => Query with { FindingRuleIds = [] },
+            FilterCategory.Findings => Query with { Findings = null },
+            _ => Query
+        };
+        return QueryChanged.InvokeAsync(query);
+    }
+
+    private string GetDurationValue() =>
+        Query.Duration?.ToString() ?? string.Empty;
+
+    private string GetFindingValue() =>
+        Query.Findings?.ToString() ?? string.Empty;
+
+    private static IReadOnlyList<T> Toggle<T>(
+        IReadOnlyList<T> values,
+        T value)
+        where T : notnull =>
+        values.Contains(value)
+            ? values.Where(candidate =>
+                !EqualityComparer<T>.Default.Equals(candidate, value))
+                .ToArray()
+            : [.. values, value];
+
+    private static IReadOnlyList<string> GetDistinctValues(
+        IEnumerable<string?> values) =>
+        values
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static void AddChip(
+        ICollection<FilterChip> chips,
+        FilterCategory category,
+        string label,
+        IEnumerable<string> values)
+    {
+        var selected = values.ToArray();
+        if (selected.Length > 0)
+        {
+            chips.Add(new FilterChip(
+                category,
+                $"{label}: {string.Join(" + ", selected)}"));
+        }
+    }
+
+    private static string FormatCount(int count) =>
+        count == 0 ? string.Empty : $"({count})";
+
+    public static string GetSeverityLabel(TraceSeverityFilter severity) =>
+        severity switch
+        {
+            TraceSeverityFilter.Severe => "Severe",
+            TraceSeverityFilter.Concerning => "Concerning",
+            TraceSeverityFilter.Warning => "Warning",
+            TraceSeverityFilter.Normal => "Normal",
+            TraceSeverityFilter.Other => "Other",
+            _ => severity.ToString()
+        };
+
+    public static string GetStatusFamilyLabel(TraceStatusFamily family) =>
+        family switch
+        {
+            TraceStatusFamily.NoResponse => "No response",
+            TraceStatusFamily.Success => "2xx",
+            TraceStatusFamily.Redirect => "3xx",
+            TraceStatusFamily.ClientError => "4xx",
+            TraceStatusFamily.ServerError => "5xx",
+            TraceStatusFamily.Other => "Other",
+            _ => family.ToString()
+        };
+
+    public static string GetDurationLabel(SessionDurationFilter duration) =>
+        duration switch
+        {
+            SessionDurationFilter.UnderOneSecond => "Under 1 second",
+            SessionDurationFilter.OneToFiveSeconds => "1–5 seconds",
+            SessionDurationFilter.FiveToThirtySeconds => "5–30 seconds",
+            SessionDurationFilter.ThirtySecondsOrMore =>
+                "30 seconds or more",
+            _ => duration.ToString()
+        };
+
+    private sealed record FilterChip(
+        FilterCategory Category,
+        string Label);
+
+    private enum FilterCategory
+    {
+        Severity,
+        Status,
+        Method,
+        Host,
+        Duration,
+        SessionType,
+        Authentication,
+        FindingRule,
+        Findings
+    }
+}

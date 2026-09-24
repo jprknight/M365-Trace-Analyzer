@@ -10,15 +10,35 @@
             @foreach (var item in Items)
             {
                 <li>
-                    @if (UseCodeLabels)
+                    @if (ItemSelected.HasDelegate)
                     {
-                        <code title="@item.Label">@item.Label</code>
+                        <button type="button"
+                                class="summary-ranked-button"
+                                title="@item.Label"
+                                @onclick="() => ItemSelected.InvokeAsync(item)">
+                            @if (UseCodeLabels)
+                            {
+                                <code>@item.Label</code>
+                            }
+                            else
+                            {
+                                <span>@item.Label</span>
+                            }
+                            <strong>@item.Count.ToString("N0")</strong>
+                        </button>
                     }
                     else
                     {
-                        <span title="@item.Label">@item.Label</span>
+                        @if (UseCodeLabels)
+                        {
+                            <code title="@item.Label">@item.Label</code>
+                        }
+                        else
+                        {
+                            <span title="@item.Label">@item.Label</span>
+                        }
+                        <strong>@item.Count.ToString("N0")</strong>
                     }
-                    <strong>@item.Count.ToString("N0")</strong>
                 </li>
             }
         </ol>
@@ -37,6 +57,9 @@
 
     [Parameter]
     public bool UseCodeLabels { get; set; }
+
+    [Parameter]
+    public EventCallback<SummaryRankedItem> ItemSelected { get; set; }
 
     private string HeadingId =>
         $"summary-{Title.ToLowerInvariant().Replace(' ', '-')}";
