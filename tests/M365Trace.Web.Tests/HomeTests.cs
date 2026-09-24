@@ -26,6 +26,7 @@ public sealed class HomeTests : IDisposable
             new VersionUpdateService(
                 new StubHttpClientFactory(_httpHandler)));
         _context.Services.AddSingleton<SessionQueryService>();
+        _context.Services.AddSingleton<TraceSummaryService>();
     }
 
     [Fact]
@@ -56,6 +57,31 @@ public sealed class HomeTests : IDisposable
             Assert.Equal("1", component.Find("tbody tr.selected td").TextContent);
             Assert.Contains("GET outlook.office.com", component.Markup);
         });
+    }
+
+    [Fact]
+    public void SuccessfulImport_ShowsTraceSummaryAndVisibleCount()
+    {
+        var component = RenderAndLoad();
+
+        component.WaitForAssertion(() =>
+        {
+            var summary = component.Find("details.trace-summary");
+            Assert.True(summary.HasAttribute("open"));
+            Assert.Contains("3 visible of 3", summary.TextContent);
+            Assert.Contains("Sessions with findings", summary.TextContent);
+            Assert.Contains("Failing hosts", summary.TextContent);
+            Assert.Contains("High-impact findings", summary.TextContent);
+            Assert.Contains("M365.Test.Failure", summary.TextContent);
+            Assert.Contains("Authentication", summary.TextContent);
+        });
+
+        component.Find("input.search-box").Input("missing");
+
+        component.WaitForAssertion(() =>
+            Assert.Contains(
+                "0 visible of 3",
+                component.Find("details.trace-summary").TextContent));
     }
 
     [Fact]

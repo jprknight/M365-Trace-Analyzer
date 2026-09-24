@@ -159,6 +159,7 @@ main {
 
 .message,
 .empty-state,
+.trace-summary,
 .workspace {
     max-width: 1600px;
     margin-right: auto;
@@ -275,6 +276,159 @@ main {
 
 .empty-file-button {
     margin: auto;
+}
+
+.trace-summary {
+    width: 100%;
+    flex: 0 0 auto;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    border: 1px solid #30363d;
+    border-radius: 0.75rem;
+    background: rgba(13, 17, 23, 0.92);
+}
+
+.trace-summary > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid transparent;
+    list-style-position: inside;
+    font-size: 0.9rem;
+}
+
+.trace-summary[open] > summary {
+    border-bottom-color: #30363d;
+}
+
+.trace-summary-caption {
+    color: #8b949e;
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+.trace-summary-content {
+    max-height: 22rem;
+    overflow: auto;
+    padding: 1rem;
+}
+
+.summary-overview {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(8rem, 1fr));
+    gap: 0.7rem;
+}
+
+.summary-metric {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    padding: 0.75rem;
+    border: 1px solid #30363d;
+    border-radius: 0.5rem;
+    background: #010409;
+}
+
+.summary-metric span,
+.summary-metric small {
+    color: #8b949e;
+    font-size: 0.72rem;
+}
+
+.summary-metric strong {
+    margin-top: 0.2rem;
+    font-size: 1.25rem;
+}
+
+.summary-metric small {
+    margin-top: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.summary-sections {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.7rem;
+    margin-top: 0.7rem;
+}
+
+.summary-section {
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid #30363d;
+    border-radius: 0.5rem;
+    background: #0d1117;
+}
+
+.summary-section h3 {
+    margin: 0 0 0.55rem;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.summary-count-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem;
+}
+
+.summary-count-grid div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.35rem 0.45rem;
+    border-radius: 0.3rem;
+    background: #010409;
+    font-size: 0.75rem;
+}
+
+.summary-ranked-list {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.summary-ranked-list li {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    padding: 0.35rem 0.45rem;
+    border-radius: 0.3rem;
+    background: #010409;
+    font-size: 0.75rem;
+}
+
+.summary-ranked-list span,
+.summary-ranked-list code {
+    min-width: 0;
+    overflow: hidden;
+    color: #c9d1d9;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.summary-ranked-list strong {
+    flex: 0 0 auto;
+}
+
+.summary-session-label {
+    font-family: Consolas, monospace;
+}
+
+.summary-empty {
+    margin: 0;
+    color: #8b949e;
+    font-size: 0.75rem;
 }
 
 .workspace {

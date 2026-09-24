@@ -1,0 +1,157 @@
+<details class="trace-summary" open>
+    <summary>
+        <span>Trace summary</span>
+        <span class="trace-summary-caption">@VisibleSessionCount.ToString("N0") visible of @Summary.TotalSessions.ToString("N0")</span>
+    </summary>
+
+    <div class="trace-summary-content">
+        <section class="summary-overview" aria-label="Trace overview">
+            <div class="summary-metric">
+                <span>Sessions</span>
+                <strong>@Summary.TotalSessions.ToString("N0")</strong>
+            </div>
+            <div class="summary-metric">
+                <span>Visible</span>
+                <strong>@VisibleSessionCount.ToString("N0")</strong>
+            </div>
+            <div class="summary-metric">
+                <span>Trace window</span>
+                <strong>@FormatDuration(Summary.TraceWindow)</strong>
+                <small>@FormatTraceRange()</small>
+            </div>
+            <div class="summary-metric">
+                <span>Sessions with findings</span>
+                <strong>@Summary.SessionsWithFindings.ToString("N0")</strong>
+            </div>
+            <div class="summary-metric">
+                <span>Slow sessions</span>
+                <strong>@Summary.SlowSessions.ToString("N0")</strong>
+            </div>
+        </section>
+
+        <div class="summary-sections">
+            <section class="summary-section" aria-labelledby="severity-summary">
+                <h3 id="severity-summary">Analysis severity</h3>
+                <div class="summary-count-grid">
+                    <div><span>Severe</span><strong>@Summary.Severities.Severe</strong></div>
+                    <div><span>Concerning</span><strong>@Summary.Severities.Concerning</strong></div>
+                    <div><span>Warning</span><strong>@Summary.Severities.Warning</strong></div>
+                    <div><span>Normal</span><strong>@Summary.Severities.Normal</strong></div>
+                    <div><span>Other</span><strong>@Summary.Severities.Other</strong></div>
+                </div>
+            </section>
+
+            <section class="summary-section" aria-labelledby="status-summary">
+                <h3 id="status-summary">HTTP status</h3>
+                <div class="summary-count-grid">
+                    <div><span>No response</span><strong>@Summary.Statuses.NoResponse</strong></div>
+                    <div><span>2xx</span><strong>@Summary.Statuses.Success</strong></div>
+                    <div><span>3xx</span><strong>@Summary.Statuses.Redirect</strong></div>
+                    <div><span>4xx</span><strong>@Summary.Statuses.ClientError</strong></div>
+                    <div><span>5xx</span><strong>@Summary.Statuses.ServerError</strong></div>
+                    @if (Summary.Statuses.Other > 0)
+                    {
+                        <div><span>Other</span><strong>@Summary.Statuses.Other</strong></div>
+                    }
+                </div>
+            </section>
+
+            <SummaryRankedList Title="Failing hosts"
+                               EmptyText="No failing hosts observed."
+                               Items="FailingHostItems" />
+
+            <SummaryRankedList Title="High-impact findings"
+                               EmptyText="No concerning or severe findings."
+                               Items="HighImpactFindingItems"
+                               UseCodeLabels="true" />
+
+            <section class="summary-section" aria-labelledby="slowest-summary">
+                <h3 id="slowest-summary">Slowest sessions</h3>
+                @if (Summary.SlowestSessions.Count == 0)
+                {
+                    <p class="summary-empty">No sessions available.</p>
+                }
+                else
+                {
+                    <ol class="summary-ranked-list">
+                        @foreach (var session in Summary.SlowestSessions)
+                        {
+                            <li>
+                                <span class="summary-session-label"
+                                      title="@($"{session.Method} {session.Host}{session.Path}")">
+                                    #@session.SessionId
+                                    @session.Method
+                                    @session.Host@session.Path
+                                </span>
+                                <strong>@FormatDuration(session.Duration)</strong>
+                            </li>
+                        }
+                    </ol>
+                }
+            </section>
+
+            <SummaryRankedList Title="Authentication"
+                               EmptyText="No authentication classifications."
+                               Items="AuthenticationItems" />
+        </div>
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public required TraceSummary Summary { get; set; }
+
+    [Parameter]
+    public int VisibleSessionCount { get; set; }
+
+    private IReadOnlyList<SummaryRankedItem> FailingHostItems =>
+        Summary.FailingHosts
+            .Select(item => new SummaryRankedItem(item.Name, item.Count))
+            .ToArray();
+
+    private IReadOnlyList<SummaryRankedItem> HighImpactFindingItems =>
+        Summary.HighImpactFindings
+            .Select(item => new SummaryRankedItem(item.RuleId, item.Count))
+            .ToArray();
+
+    private IReadOnlyList<SummaryRankedItem> AuthenticationItems =>
+        Summary.AuthenticationTypes
+            .Select(item => new SummaryRankedItem(item.Name, item.Count))
+            .ToArray();
+
+    private string FormatTraceRange()
+    {
+        if (Summary.TraceStart is null || Summary.TraceEnd is null)
+        {
+            return "No timing data";
+        }
+
+        return $"{Summary.TraceStart.Value.ToLocalTime():G} – "
+            + $"{Summary.TraceEnd.Value.ToLocalTime():G}";
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalDays >= 1)
+        {
+            return $"{duration.TotalDays:N1} d";
+        }
+
+        if (duration.TotalHours >= 1)
+        {
+            return $"{duration.TotalHours:N1} h";
+        }
+
+        if (duration.TotalMinutes >= 1)
+        {
+            return $"{duration.TotalMinutes:N1} min";
+        }
+
+        if (duration.TotalSeconds >= 1)
+        {
+            return $"{duration.TotalSeconds:N2} s";
+        }
+
+        return $"{duration.TotalMilliseconds:N0} ms";
+    }
+}
