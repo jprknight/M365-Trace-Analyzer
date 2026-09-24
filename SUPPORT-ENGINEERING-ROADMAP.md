@@ -53,12 +53,13 @@ Status markers in this document apply only where the complete listed outcome has
 No Phase 1, Phase 2, or Phase 3 feature set is complete yet. Work completed since this roadmap was written is concentrated in release engineering and regression protection:
 
 - Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
-- CI now validates formatting, warning-free builds, 106 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- CI now validates formatting, warning-free builds, 136 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
 - A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, and request-only detail selection.
 - CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
 - Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
 - XML display now handles diagnostic responses containing prohibited numeric character references without altering Raw content.
 - JSON display now handles a leading UTF-8 BOM without altering Raw content.
+- Phase 1 foundation now separates immutable session query state, filtering, sorting, selection, and visible-session navigation from `Home.razor` into unit-tested services without changing the current UI.
 
 ### Phase 1 — Support-engineer triage essentials
 
@@ -292,7 +293,7 @@ The JSON schema must be deterministic so it can support future CLI or MCP consum
 
 ### Phase 1 implementation sequence
 
-1. Extract and test the session query/filter/sort behavior from `Home.razor`.
+1. [x] Extract and test the session query/filter/sort behavior from `Home.razor`.
 2. Introduce workspace state and split the large page into focused components without intentionally changing behavior.
 3. Add the trace summary service and summary panel.
 4. Add structured filters, active chips, counts, and summary drill-through.

@@ -19,6 +19,7 @@ builder.Services.AddHttpClient("GitHubReleases", client =>
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 builder.Services.AddSingleton<VersionUpdateService>();
+builder.Services.AddSingleton<SessionQueryService>();
 builder.Services.AddSingleton<ITraceImporter, HarTraceImporter>();
 builder.Services.AddSingleton<ITraceImporter, SazTraceImporter>();
 builder.Services.AddSingleton<LegacyRulesetData>();
