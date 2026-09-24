@@ -17,6 +17,7 @@ public sealed class HomeTests : IDisposable
     private readonly BunitContext _context = new();
     private readonly StubTraceImporter _importer = new();
     private readonly StubHttpMessageHandler _httpHandler = new();
+    private readonly StubClipboardService _clipboard = new();
 
     public HomeTests()
     {
@@ -28,6 +29,9 @@ public sealed class HomeTests : IDisposable
                 new StubHttpClientFactory(_httpHandler)));
         _context.Services.AddSingleton<SessionQueryService>();
         _context.Services.AddSingleton<TraceSummaryService>();
+        _context.Services.AddSingleton<DiagnosticHeaderService>();
+        _context.Services.AddSingleton<SessionCopyFormatter>();
+        _context.Services.AddSingleton<IClipboardService>(_clipboard);
     }
 
     [Fact]
@@ -433,6 +437,152 @@ public sealed class HomeTests : IDisposable
     }
 
     [Fact]
+    public void MatchingSessionNavigation_StaysWithinFilteredResults()
+    {
+        var component = RenderAndLoad();
+
+        SelectFilterOption(component, "severity", "Severe");
+        SelectFilterOption(component, "severity", "Warning");
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal([2, 3], GetVisibleSessionIds(component));
+            Assert.Equal("2", component.Find("tbody tr.selected td").TextContent);
+            Assert.True(component
+                .Find("button[data-session-navigation='previous']")
+                .HasAttribute("disabled"));
+            Assert.False(component
+                .Find("button[data-session-navigation='next']")
+                .HasAttribute("disabled"));
+        });
+
+        component
+            .Find("button[data-session-navigation='next']")
+            .Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal("3", component.Find("tbody tr.selected td").TextContent);
+            Assert.False(component
+                .Find("button[data-session-navigation='previous']")
+                .HasAttribute("disabled"));
+            Assert.True(component
+                .Find("button[data-session-navigation='next']")
+                .HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void DiagnosticHeaders_AreElevatedWithoutHidingFullHeaders()
+    {
+        _importer.Sessions =
+        [
+            CreateSession(
+                1,
+                "GET",
+                "https://example.test/diagnostics",
+                429,
+                "Too Many Requests",
+                50,
+                requestHeaders:
+                [
+                    new TraceHeader("X-MS-Request-ID", "request-123"),
+                    new TraceHeader("Accept", "application/json")
+                ],
+                responseHeaders:
+                [
+                    new TraceHeader("retry-after", "30"),
+                    new TraceHeader("Content-Type", "application/json")
+                ])
+        ];
+
+        var component = RenderAndLoad();
+
+        component.WaitForAssertion(() =>
+        {
+            var diagnosticRows = component.FindAll(
+                ".diagnostic-header-row");
+            Assert.Equal(2, diagnosticRows.Count);
+            Assert.Contains("Request", diagnosticRows[0].TextContent);
+            Assert.Contains("X-MS-Request-ID", diagnosticRows[0].TextContent);
+            Assert.Contains("request-123", diagnosticRows[0].TextContent);
+            Assert.Contains("Response", diagnosticRows[1].TextContent);
+            Assert.Contains("retry-after", diagnosticRows[1].TextContent);
+            Assert.Contains("30", diagnosticRows[1].TextContent);
+            Assert.Contains("Accept", component.FindAll(".header-list")[0].TextContent);
+            Assert.Contains(
+                "Content-Type",
+                component.FindAll(".header-list")[1].TextContent);
+        });
+    }
+
+    [Fact]
+    public void CopyActions_ReportSuccessAndIncludeTruncationWarning()
+    {
+        _importer.Sessions =
+        [
+            CreateSession(
+                1,
+                "GET",
+                "https://example.test/copy",
+                200,
+                "OK",
+                50,
+                responseContent: new TraceContent(
+                    "partial response",
+                    "text/plain",
+                    500,
+                    false,
+                    true))
+        ];
+
+        var component = RenderAndLoad();
+
+        component.Find("button[data-copy-action='url']").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(
+                "https://example.test/copy",
+                _clipboard.LastText);
+            Assert.Equal(
+                "URL copied.",
+                component.Find(".copy-status.success").TextContent);
+        });
+
+        component
+            .Find("button[data-copy-action='response-body']")
+            .Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("partial response", _clipboard.LastText);
+            Assert.Contains(
+                "[Content truncated during import.]",
+                _clipboard.LastText);
+            Assert.Equal(
+                "Response body copied with a truncation warning.",
+                component.Find(".copy-status.warning").TextContent);
+        });
+    }
+
+    [Fact]
+    public void CopyFailure_IsReportedExplicitly()
+    {
+        _clipboard.Result = new ClipboardWriteResult(
+            false,
+            "Clipboard permission denied.");
+        var component = RenderAndLoad();
+
+        component.Find("button[data-copy-action='url']").Click();
+
+        component.WaitForAssertion(() =>
+            Assert.Equal(
+                "Unable to copy url. Clipboard permission denied.",
+                component.Find(".copy-status.error").TextContent));
+    }
+
+    [Fact]
     public void FindingDetails_RenderEvidenceRecommendationAndSafeLink()
     {
         var component = RenderAndLoad();
@@ -777,6 +927,20 @@ public sealed class HomeTests : IDisposable
             Task.FromResult(Response(request));
     }
 
+    private sealed class StubClipboardService : IClipboardService
+    {
+        public ClipboardWriteResult Result { get; set; } =
+            ClipboardWriteResult.Success;
+
+        public string? LastText { get; private set; }
+
+        public ValueTask<ClipboardWriteResult> WriteTextAsync(string text)
+        {
+            LastText = text;
+            return ValueTask.FromResult(Result);
+        }
+    }
+
     private static TraceSession CreateSession(
         int id,
         string method,
@@ -786,6 +950,7 @@ public sealed class HomeTests : IDisposable
         double durationMilliseconds,
         IReadOnlyList<TraceHeader>? requestHeaders = null,
         IReadOnlyList<TraceHeader>? responseHeaders = null,
+        TraceContent? requestContent = null,
         TraceContent? responseContent = null,
         bool includeResponseContent = true) =>
         new()
@@ -801,6 +966,7 @@ public sealed class HomeTests : IDisposable
                 ?? [new TraceHeader("Accept", "application/json")],
             ResponseHeaders = responseHeaders
                 ?? [new TraceHeader("Content-Type", "application/json")],
+            RequestContent = requestContent,
             ResponseContent = includeResponseContent
                 ? responseContent
                     ?? new TraceContent(

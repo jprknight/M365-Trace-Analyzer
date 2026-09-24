@@ -21,6 +21,9 @@ builder.Services.AddHttpClient("GitHubReleases", client =>
 builder.Services.AddSingleton<VersionUpdateService>();
 builder.Services.AddSingleton<SessionQueryService>();
 builder.Services.AddSingleton<TraceSummaryService>();
+builder.Services.AddSingleton<DiagnosticHeaderService>();
+builder.Services.AddSingleton<SessionCopyFormatter>();
+builder.Services.AddScoped<IClipboardService, ClipboardService>();
 builder.Services.AddSingleton<ITraceImporter, HarTraceImporter>();
 builder.Services.AddSingleton<ITraceImporter, SazTraceImporter>();
 builder.Services.AddSingleton<LegacyRulesetData>();
