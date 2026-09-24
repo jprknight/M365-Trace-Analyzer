@@ -3,6 +3,7 @@
 @inject TraceAnalysisEngine AnalysisEngine
 @inject M365Trace.Web.Services.VersionUpdateService VersionUpdateService
 @inject M365Trace.Web.Services.SessionQueryService SessionQueryService
+@inject M365Trace.Web.Services.TraceSummaryService TraceSummaryService
 
 <PageTitle>M365 Trace Analyzer</PageTitle>
 
@@ -102,6 +103,12 @@
 }
 else if (workspace.Sessions.Count > 0)
 {
+    @if (traceSummary is not null)
+    {
+        <TraceSummaryPanel Summary="traceSummary"
+                           VisibleSessionCount="workspace.VisibleSessions.Count" />
+    }
+
     <section class="workspace">
         <div class="session-panel">
             <div class="panel-heading">
@@ -338,6 +345,7 @@ else if (workspace.Sessions.Count > 0)
     private const long MaximumBrowserFileSize = HarImportOptions.DefaultMaximumFileSize;
 
     private M365Trace.Web.Services.TraceWorkspaceState workspace = null!;
+    private M365Trace.Web.Services.TraceSummary? traceSummary;
     private string? errorMessage;
     private string archivePassword = string.Empty;
     private bool isLoading;
@@ -393,6 +401,7 @@ else if (workspace.Sessions.Count > 0)
         isLoading = true;
         errorMessage = null;
         workspace.ClearSessions();
+        traceSummary = null;
         archivePassword = string.Empty;
         pendingFile = null;
         pendingImporter = null;
@@ -472,6 +481,7 @@ else if (workspace.Sessions.Count > 0)
             file.Name,
             importedSessions.Select(session =>
                 session with { Analysis = AnalysisEngine.Analyze(session) }));
+        traceSummary = TraceSummaryService.Create(workspace.Sessions);
         pendingFile = null;
         pendingImporter = null;
     }
@@ -482,6 +492,7 @@ else if (workspace.Sessions.Count > 0)
         pendingFile = null;
         pendingImporter = null;
         workspace.ClearSessions();
+        traceSummary = null;
         errorMessage = null;
     }
 
