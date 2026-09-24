@@ -592,8 +592,7 @@ main {
     position: relative;
 }
 
-.filter-menu > summary,
-.filter-select-label {
+.filter-menu > summary {
     display: flex;
     box-sizing: border-box;
     height: 1.85rem;
@@ -678,22 +677,6 @@ main {
     padding: 0.35rem 0.4rem;
     color: #8b949e;
     font-size: 0.72rem;
-}
-
-.filter-select-label {
-    padding-right: 0.25rem;
-}
-
-.filter-select-label select {
-    max-width: 9rem;
-    height: 1.25rem;
-    padding-block: 0;
-    border: 0;
-    outline: none;
-    background: #161b22;
-    color: #e6edf3;
-    font-size: 0.72rem;
-    line-height: 1;
 }
 
 .filter-result-count {
