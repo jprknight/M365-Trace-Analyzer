@@ -595,6 +595,8 @@ main {
 .filter-menu > summary,
 .filter-select-label {
     display: flex;
+    box-sizing: border-box;
+    height: 1.85rem;
     min-height: 1.85rem;
     align-items: center;
     gap: 0.3rem;
@@ -684,11 +686,14 @@ main {
 
 .filter-select-label select {
     max-width: 9rem;
+    height: 1.25rem;
+    padding-block: 0;
     border: 0;
     outline: none;
     background: #161b22;
     color: #e6edf3;
     font-size: 0.72rem;
+    line-height: 1;
 }
 
 .filter-result-count {

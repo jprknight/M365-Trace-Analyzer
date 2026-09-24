@@ -65,6 +65,31 @@ public sealed class StandaloneApplicationTests
             await page.Locator("input[type=file]").First.SetInputFilesAsync(harPath);
             await WaitForRowCountWithDiagnosticsAsync(page, 2);
 
+            var severityMenu = page.Locator(
+                "details[data-filter-menu=severity]");
+            var statusMenu = page.Locator(
+                "details[data-filter-menu=status]");
+            await severityMenu.Locator("summary").ClickAsync();
+            Assert.NotNull(await severityMenu.GetAttributeAsync("open"));
+
+            await statusMenu.Locator("summary").ClickAsync();
+            Assert.Null(await severityMenu.GetAttributeAsync("open"));
+            Assert.NotNull(await statusMenu.GetAttributeAsync("open"));
+
+            await page.Locator(".panel-heading h2").ClickAsync();
+            Assert.Null(await statusMenu.GetAttributeAsync("open"));
+
+            var menuHeight = await severityMenu
+                .Locator("summary")
+                .EvaluateAsync<double>(
+                    "element => element.getBoundingClientRect().height");
+            var durationHeight = await page
+                .Locator("label.filter-select-label")
+                .Filter(new LocatorFilterOptions { HasText = "Duration" })
+                .EvaluateAsync<double>(
+                    "element => element.getBoundingClientRect().height");
+            Assert.InRange(Math.Abs(menuHeight - durationHeight), 0, 0.5);
+
             await page.Locator("input.search-box").FillAsync("missing");
             await WaitForRowCountWithDiagnosticsAsync(page, 0);
             Assert.True(await page.Locator("button.search-clear-button").IsVisibleAsync());
