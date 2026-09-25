@@ -1,12 +1,13 @@
 @using M365Trace.Core
 
-<details class="import-quality @(Result.Quality.HasWarnings ? "import-quality-warning" : "import-quality-complete")">
+<details class="import-quality @(Result.Quality.HasWarnings ? "import-quality-warning" : "import-quality-complete")"
+         open>
     <summary>
         <span class="import-quality-heading">
             <strong>Import quality</strong>
             <span>@GetSummary()</span>
         </span>
-        <small>Click to review details</small>
+        <small>Click to show or hide details</small>
     </summary>
 
     <div class="import-quality-content">

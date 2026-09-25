@@ -33,11 +33,17 @@ public sealed class StandaloneApplicationTests
         var harPath = Path.Combine(
             Path.GetTempPath(),
             $"m365-trace-e2e-{Guid.NewGuid():N}.har");
+        var warningHarPath = Path.Combine(
+            Path.GetTempPath(),
+            $"m365-trace-warning-e2e-{Guid.NewGuid():N}.har");
         Process? process = null;
 
         try
         {
             await File.WriteAllTextAsync(harPath, CreateHar());
+            await File.WriteAllTextAsync(
+                warningHarPath,
+                CreateWarningHar());
             var startInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
@@ -72,11 +78,11 @@ public sealed class StandaloneApplicationTests
             await page.Locator("input[type=file]").First.SetInputFilesAsync(harPath);
             await WaitForRowCountWithDiagnosticsAsync(page, 2);
 
-            var importQuality = page.Locator("details.import-quality");
-            await importQuality.WaitForAsync();
-            Assert.Contains(
-                "2 of 2 sessions imported",
-                await importQuality.InnerTextAsync());
+            Assert.Equal(
+                0,
+                await page
+                    .Locator("details.import-quality")
+                    .CountAsync());
 
             var diagnosticHeader = page
                 .Locator(".diagnostic-header-row")
@@ -243,6 +249,37 @@ public sealed class StandaloneApplicationTests
                 0,
                 await responseSummaries.CountAsync());
 
+            await page.SetViewportSizeAsync(1060, 768);
+            await page
+                .Locator("input[type=file]")
+                .First
+                .SetInputFilesAsync(warningHarPath);
+            await WaitForRowCountWithDiagnosticsAsync(page, 1);
+
+            var importQuality = page.Locator("details.import-quality");
+            await importQuality.WaitForAsync();
+            Assert.NotNull(await importQuality.GetAttributeAsync("open"));
+            Assert.Contains(
+                "1 of 2 sessions imported",
+                await importQuality.InnerTextAsync());
+            var importQualityBounds = await importQuality.BoundingBoxAsync();
+            var finalWarningBounds = await importQuality
+                .Locator(".import-quality-issues li")
+                .Last
+                .BoundingBoxAsync();
+            Assert.NotNull(importQualityBounds);
+            Assert.NotNull(finalWarningBounds);
+            Assert.True(
+                finalWarningBounds.Y + finalWarningBounds.Height
+                <= importQualityBounds.Y + importQualityBounds.Height);
+            var importQualityDimensions = await importQuality
+                .EvaluateAsync<int[]>(
+                    "element => [element.clientHeight, element.scrollHeight]");
+            Assert.InRange(
+                importQualityDimensions[1] - importQualityDimensions[0],
+                0,
+                1);
+
             if (process.HasExited)
             {
                 await File.WriteAllTextAsync(outputPath, await outputTask);
@@ -262,6 +299,7 @@ public sealed class StandaloneApplicationTests
 
             process?.Dispose();
             File.Delete(harPath);
+            File.Delete(warningHarPath);
             File.Delete(outputPath);
             File.Delete(errorPath);
         }
@@ -357,6 +395,7 @@ public sealed class StandaloneApplicationTests
                 "request": {
                   "method": "GET",
                   "url": "https://outlook.office.com/owa/",
+                  "httpVersion": "HTTP/1.1",
                   "headers": [
                     { "name": "Accept", "value": "application/json" },
                     { "name": "request-id", "value": "e2e-request-1" }
@@ -365,6 +404,7 @@ public sealed class StandaloneApplicationTests
                 "response": {
                   "status": 200,
                   "statusText": "OK",
+                  "httpVersion": "HTTP/1.1",
                   "headers": [{ "name": "Content-Type", "value": "application/json" }],
                   "content": {
                     "mimeType": "application/json",
@@ -378,16 +418,63 @@ public sealed class StandaloneApplicationTests
                 "request": {
                   "method": "GET",
                   "url": "https://outlook.office.com/owa/service.svc",
+                  "httpVersion": "HTTP/1.1",
                   "headers": []
                 },
                 "response": {
                   "status": 503,
                   "statusText": "Service Unavailable",
+                  "httpVersion": "HTTP/1.1",
                   "headers": [{ "name": "Content-Type", "value": "text/plain" }],
                   "content": {
                     "mimeType": "text/plain",
                     "text": "Service unavailable"
                   }
+                }
+              }
+            ]
+          }
+        }
+        """;
+
+    private static string CreateWarningHar() =>
+        """
+        {
+          "log": {
+            "version": "1.2",
+            "creator": {
+              "name": "M365 Trace Analyzer E2E",
+              "version": "1.0"
+            },
+            "entries": [
+              {
+                "startedDateTime": "2026-09-25T16:30:00-04:00",
+                "time": 125,
+                "request": {
+                  "method": "GET",
+                  "url": "https://outlook.office.com/owa/",
+                  "httpVersion": "HTTP/1.1",
+                  "headers": []
+                },
+                "response": {
+                  "status": 200,
+                  "statusText": "OK",
+                  "httpVersion": "HTTP/1.1",
+                  "headers": [],
+                  "content": {
+                    "mimeType": "application/json",
+                    "text": "{\"status\":\"ok\"}"
+                  }
+                }
+              },
+              {
+                "startedDateTime": "2026-09-25T16:30:01-04:00",
+                "time": 50,
+                "request": {
+                  "method": "GET",
+                  "url": "https://outlook.office.com/owa/malformed-demo",
+                  "httpVersion": "HTTP/1.1",
+                  "headers": []
                 }
               }
             ]

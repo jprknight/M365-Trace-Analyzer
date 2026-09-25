@@ -281,6 +281,8 @@ main {
 
 .import-quality {
     width: 100%;
+    flex: 0 0 auto;
+    margin-top: 0;
     margin-bottom: 1rem;
     overflow: hidden;
     border: 1px solid #30363d;
@@ -300,11 +302,17 @@ main {
 
 .import-quality > summary {
     display: flex;
+    min-height: 2.75rem;
+    box-sizing: border-box;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
     padding: 0.75rem 1rem;
     cursor: pointer;
+}
+
+.import-quality[open] > summary {
+    border-bottom: 1px solid #30363d;
 }
 
 .import-quality-heading {
