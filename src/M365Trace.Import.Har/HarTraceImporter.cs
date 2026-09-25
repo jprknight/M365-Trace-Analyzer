@@ -33,6 +33,13 @@ public sealed class HarTraceImporter : ITraceImporter
             throw new ArgumentOutOfRangeException(nameof(options), "Maximum text length must be positive.");
         }
 
+        if (options.MaximumMetadataItemCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Maximum metadata item count must be positive.");
+        }
+
         _options = options;
     }
 
@@ -111,19 +118,23 @@ public sealed class HarTraceImporter : ITraceImporter
                 $"The HAR file contains more than {_options.MaximumEntryCount:N0} sessions.");
         }
 
+        var pages = ParsePages(log);
         var sessions = new List<TraceSession>(entries.GetArrayLength());
         var id = 1;
 
         foreach (var entry in entries.EnumerateArray())
         {
-            sessions.Add(ParseEntry(entry, id));
+            sessions.Add(ParseEntry(entry, id, pages));
             id++;
         }
 
         return sessions;
     }
 
-    private TraceSession ParseEntry(JsonElement entry, int id)
+    private TraceSession ParseEntry(
+        JsonElement entry,
+        int id,
+        IReadOnlyDictionary<string, TracePageMetadata> pages)
     {
         if (entry.ValueKind != JsonValueKind.Object)
         {
@@ -139,34 +150,74 @@ public sealed class HarTraceImporter : ITraceImporter
             throw new HarImportException($"HAR entry {id} contains an invalid request URL.");
         }
 
+        var method = GetRequiredString(request, "method", id);
+        var statusCode = GetRequiredInt32(response, "status", id);
+        var requestContent = ParseContent(
+            request,
+            "postData",
+            TraceContentAvailability.NotPresent);
+        var responseContent = ParseContent(
+            response,
+            "content",
+            ResponseCanHaveBody(method, statusCode)
+                ? TraceContentAvailability.Unavailable
+                : TraceContentAvailability.NotPresent);
+        var pageReference = GetOptionalString(entry, "pageref");
+
         return new TraceSession
         {
             Id = id,
             StartedAt = ParseStartedAt(entry, id),
-            Method = GetRequiredString(request, "method", id),
+            Method = method,
             Url = url,
-            StatusCode = GetRequiredInt32(response, "status", id),
+            StatusCode = statusCode,
             StatusText = GetOptionalString(response, "statusText"),
             Duration = TimeSpan.FromMilliseconds(Math.Max(0, GetOptionalDouble(entry, "time") ?? 0)),
             RequestHeaders = ParseHeaders(request, "headers"),
             ResponseHeaders = ParseHeaders(response, "headers"),
-            RequestContent = ParseContent(request, "postData"),
-            ResponseContent = ParseContent(response, "content"),
+            RequestContent = requestContent.Content,
+            ResponseContent = responseContent.Content,
             Metadata = new TraceSessionMetadata
             {
                 Source = new TraceSourceMetadata(
                     TraceSourceFormat.Har,
-                    id.ToString(CultureInfo.InvariantCulture))
+                    id.ToString(CultureInfo.InvariantCulture),
+                    pageReference),
+                Protocol = ParseProtocol(request, response),
+                Sizes = ParseSizes(request, response),
+                Endpoints = ParseEndpoints(entry),
+                Connection = ParseConnection(entry),
+                Redirect = ParseRedirect(response),
+                Cache = ParseCache(entry, response),
+                Http = ParseHttp(request, response, id),
+                Page = pageReference is not null
+                    && pages.TryGetValue(pageReference, out var page)
+                        ? page
+                        : null,
+                Timings = ParseTimings(entry),
+                Completeness = new TraceSessionCompleteness(
+                    new TraceMessageCompleteness(
+                        GetCaptureState(request, "httpVersion"),
+                        requestContent.Availability),
+                    new TraceMessageCompleteness(
+                        statusCode > 0
+                            ? GetCaptureState(response, "httpVersion")
+                            : TraceCaptureState.Partial,
+                        responseContent.Availability),
+                    TraceMetadataSource.HarEntry)
             }
         };
     }
 
-    private TraceContent? ParseContent(JsonElement container, string propertyName)
+    private ParsedContent ParseContent(
+        JsonElement container,
+        string propertyName,
+        TraceContentAvailability missingAvailability)
     {
         if (!container.TryGetProperty(propertyName, out var content)
             || content.ValueKind != JsonValueKind.Object)
         {
-            return null;
+            return new ParsedContent(null, missingAvailability);
         }
 
         var mimeType = GetOptionalString(content, "mimeType");
@@ -179,7 +230,11 @@ public sealed class HarTraceImporter : ITraceImporter
 
         if (text is null)
         {
-            return new TraceContent(null, mimeType, size, isBase64, false);
+            return new ParsedContent(
+                new TraceContent(null, mimeType, size, isBase64, false),
+                size == 0
+                    ? TraceContentAvailability.NotPresent
+                    : TraceContentAvailability.Unavailable);
         }
 
         if (isBase64)
@@ -196,13 +251,17 @@ public sealed class HarTraceImporter : ITraceImporter
                             ? Convert.ToBase64String(bytes)
                             : null;
 
-                    return new TraceContent(
-                        null,
-                        mimeType,
-                        size,
-                        true,
-                        false,
-                        base64Data);
+                    return new ParsedContent(
+                        new TraceContent(
+                            null,
+                            mimeType,
+                            size,
+                            true,
+                            false,
+                            base64Data),
+                        base64Data is null
+                            ? TraceContentAvailability.Unavailable
+                            : TraceContentAvailability.Available);
                 }
 
                 text = Encoding.UTF8.GetString(bytes);
@@ -219,8 +278,376 @@ public sealed class HarTraceImporter : ITraceImporter
             text = text[.._options.MaximumTextLength];
         }
 
-        return new TraceContent(text, mimeType, size, isBase64, isTruncated);
+        return new ParsedContent(
+            new TraceContent(text, mimeType, size, isBase64, isTruncated),
+            isTruncated
+                ? TraceContentAvailability.Truncated
+                : string.IsNullOrEmpty(text)
+                    ? TraceContentAvailability.NotPresent
+                    : TraceContentAvailability.Available);
     }
+
+    private IReadOnlyDictionary<string, TracePageMetadata> ParsePages(
+        JsonElement log)
+    {
+        if (!log.TryGetProperty("pages", out var pages)
+            || pages.ValueKind != JsonValueKind.Array)
+        {
+            return new Dictionary<string, TracePageMetadata>(
+                StringComparer.Ordinal);
+        }
+
+        EnsureMetadataItemCount(pages, "pages");
+        var result = new Dictionary<string, TracePageMetadata>(
+            StringComparer.Ordinal);
+
+        foreach (var page in pages.EnumerateArray())
+        {
+            if (page.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var reference = GetOptionalString(page, "id");
+            if (string.IsNullOrWhiteSpace(reference))
+            {
+                continue;
+            }
+
+            var timings = TryGetObject(page, "pageTimings");
+            result.TryAdd(
+                reference,
+                new TracePageMetadata(
+                    reference,
+                    GetOptionalString(page, "title"),
+                    GetOptionalDateTimeOffset(page, "startedDateTime"),
+                    timings is null
+                        ? null
+                        : GetOptionalDuration(
+                            timings.Value,
+                            "onContentLoad"),
+                    timings is null
+                        ? null
+                        : GetOptionalDuration(timings.Value, "onLoad"),
+                    TraceMetadataSource.HarPage));
+        }
+
+        return result;
+    }
+
+    private static TraceProtocolMetadata? ParseProtocol(
+        JsonElement request,
+        JsonElement response)
+    {
+        var requestVersion = GetOptionalString(request, "httpVersion");
+        var responseVersion = GetOptionalString(response, "httpVersion");
+
+        return requestVersion is null && responseVersion is null
+            ? null
+            : new TraceProtocolMetadata(
+                requestVersion,
+                responseVersion,
+                TraceMetadataSource.HarEntry);
+    }
+
+    private static TraceSizeMetadata? ParseSizes(
+        JsonElement request,
+        JsonElement response)
+    {
+        var requestSize = ParseMessageSize(request);
+        var responseSize = ParseMessageSize(response);
+
+        return requestSize is null && responseSize is null
+            ? null
+            : new TraceSizeMetadata(
+                requestSize,
+                responseSize,
+                TraceMetadataSource.HarEntry);
+    }
+
+    private static TraceMessageSize? ParseMessageSize(JsonElement message)
+    {
+        var headers = GetOptionalNonNegativeInt64(message, "headersSize");
+        var body = GetOptionalNonNegativeInt64(message, "bodySize");
+        return headers is null && body is null
+            ? null
+            : new TraceMessageSize(headers, body);
+    }
+
+    private static TraceEndpointMetadata? ParseEndpoints(JsonElement entry)
+    {
+        var serverAddress = GetOptionalString(entry, "serverIPAddress");
+        return string.IsNullOrWhiteSpace(serverAddress)
+            ? null
+            : new TraceEndpointMetadata(
+                null,
+                new TraceEndpoint(serverAddress, null),
+                TraceMetadataSource.HarEntry);
+    }
+
+    private static TraceConnectionMetadata? ParseConnection(JsonElement entry)
+    {
+        var connectionId = GetOptionalScalarString(entry, "connection");
+        return string.IsNullOrWhiteSpace(connectionId)
+            ? null
+            : new TraceConnectionMetadata(
+                connectionId,
+                null,
+                TraceMetadataSource.HarEntry);
+    }
+
+    private static TraceRedirectMetadata? ParseRedirect(JsonElement response)
+    {
+        var redirectUrl = GetOptionalString(response, "redirectURL");
+        return Uri.TryCreate(redirectUrl, UriKind.Absolute, out var target)
+            ? new TraceRedirectMetadata(
+                target,
+                TraceMetadataSource.HarEntry)
+            : null;
+    }
+
+    private static TraceCacheMetadata? ParseCache(
+        JsonElement entry,
+        JsonElement response)
+    {
+        var cache = TryGetObject(entry, "cache");
+        var beforeRequest = cache is null
+            ? null
+            : ParseCacheEntry(cache.Value, "beforeRequest");
+        var afterRequest = cache is null
+            ? null
+            : ParseCacheEntry(cache.Value, "afterRequest");
+        var disposition = ParseCacheDisposition(response);
+
+        if (cache is null
+            && beforeRequest is null
+            && afterRequest is null
+            && disposition == TraceCacheDisposition.Unknown)
+        {
+            return null;
+        }
+
+        return new TraceCacheMetadata(
+            disposition,
+            afterRequest?.ETag ?? beforeRequest?.ETag,
+            TraceMetadataSource.HarEntry,
+            beforeRequest,
+            afterRequest);
+    }
+
+    private static TraceCacheEntryMetadata? ParseCacheEntry(
+        JsonElement cache,
+        string propertyName)
+    {
+        var entry = TryGetObject(cache, propertyName);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        return new TraceCacheEntryMetadata(
+            GetOptionalDateTimeOffset(entry.Value, "expires"),
+            GetOptionalDateTimeOffset(entry.Value, "lastAccess"),
+            GetOptionalString(entry.Value, "eTag"),
+            GetOptionalNonNegativeInt32(entry.Value, "hitCount"));
+    }
+
+    private static TraceCacheDisposition ParseCacheDisposition(
+        JsonElement response)
+    {
+        if (GetOptionalBoolean(response, "_fromCache")
+            ?? GetOptionalBoolean(response, "_servedFromCache")
+            ?? false)
+        {
+            return TraceCacheDisposition.Hit;
+        }
+
+        if (response.TryGetProperty("_fromCache", out var fromCache)
+            && fromCache.ValueKind == JsonValueKind.False)
+        {
+            return TraceCacheDisposition.Miss;
+        }
+
+        return GetOptionalInt32(response, "status") == 304
+            ? TraceCacheDisposition.Revalidated
+            : TraceCacheDisposition.Unknown;
+    }
+
+    private TraceHttpMetadata? ParseHttp(
+        JsonElement request,
+        JsonElement response,
+        int id)
+    {
+        var queryEntries = ParseNameValues(
+            request,
+            "queryString",
+            id);
+        var requestCookies = ParseCookies(
+            request,
+            "cookies",
+            id);
+        var responseCookies = ParseCookies(
+            response,
+            "cookies",
+            id);
+
+        return queryEntries.Count == 0
+            && requestCookies.Count == 0
+            && responseCookies.Count == 0
+                ? null
+                : new TraceHttpMetadata(
+                    queryEntries,
+                    requestCookies,
+                    responseCookies,
+                    TraceMetadataSource.HarEntry);
+    }
+
+    private IReadOnlyList<TraceNameValue> ParseNameValues(
+        JsonElement container,
+        string propertyName,
+        int id)
+    {
+        if (!container.TryGetProperty(propertyName, out var values)
+            || values.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        EnsureMetadataItemCount(values, $"entry {id} {propertyName}");
+        var result = new List<TraceNameValue>(values.GetArrayLength());
+
+        foreach (var value in values.EnumerateArray())
+        {
+            if (value.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var name = GetOptionalString(value, "name");
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                result.Add(new TraceNameValue(
+                    name,
+                    GetOptionalString(value, "value") ?? string.Empty));
+            }
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<TraceCookieMetadata> ParseCookies(
+        JsonElement container,
+        string propertyName,
+        int id)
+    {
+        if (!container.TryGetProperty(propertyName, out var cookies)
+            || cookies.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        EnsureMetadataItemCount(cookies, $"entry {id} {propertyName}");
+        var result = new List<TraceCookieMetadata>(
+            cookies.GetArrayLength());
+
+        foreach (var cookie in cookies.EnumerateArray())
+        {
+            if (cookie.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var name = GetOptionalString(cookie, "name");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            result.Add(new TraceCookieMetadata(
+                name,
+                GetOptionalString(cookie, "value") ?? string.Empty,
+                GetOptionalString(cookie, "path"),
+                GetOptionalString(cookie, "domain"),
+                GetOptionalDateTimeOffset(cookie, "expires"),
+                GetOptionalBoolean(cookie, "httpOnly"),
+                GetOptionalBoolean(cookie, "secure"),
+                GetOptionalString(cookie, "sameSite")));
+        }
+
+        return result;
+    }
+
+    private static TraceTimingMetadata? ParseTimings(JsonElement entry)
+    {
+        var timings = TryGetObject(entry, "timings");
+        if (timings is null)
+        {
+            return null;
+        }
+
+        var metadata = new TraceTimingMetadata
+        {
+            Queued = GetOptionalDuration(
+                timings.Value,
+                "_blocked_queueing")
+                ?? GetOptionalDuration(timings.Value, "_queued"),
+            Blocked = GetOptionalDuration(timings.Value, "blocked"),
+            Dns = GetOptionalDuration(timings.Value, "dns"),
+            Connect = GetOptionalDuration(timings.Value, "connect"),
+            Tls = GetOptionalDuration(timings.Value, "ssl"),
+            Send = GetOptionalDuration(timings.Value, "send"),
+            Wait = GetOptionalDuration(timings.Value, "wait"),
+            Receive = GetOptionalDuration(timings.Value, "receive"),
+            Source = TraceMetadataSource.HarTiming
+        };
+
+        return metadata.Queued is null
+            && metadata.Blocked is null
+            && metadata.Dns is null
+            && metadata.Connect is null
+            && metadata.Tls is null
+            && metadata.Send is null
+            && metadata.Wait is null
+            && metadata.Receive is null
+                ? null
+                : metadata;
+    }
+
+    private void EnsureMetadataItemCount(
+        JsonElement array,
+        string description)
+    {
+        if (array.GetArrayLength() > _options.MaximumMetadataItemCount)
+        {
+            throw new HarImportException(
+                $"The HAR {description} contains more than "
+                + $"{_options.MaximumMetadataItemCount:N0} metadata items.");
+        }
+    }
+
+    private static TraceCaptureState GetCaptureState(
+        JsonElement message,
+        string protocolProperty)
+    {
+        var hasHeaders = message.TryGetProperty(
+            "headers",
+            out var headers)
+            && headers.ValueKind == JsonValueKind.Array;
+        var hasProtocol = !string.IsNullOrWhiteSpace(
+            GetOptionalString(message, protocolProperty));
+
+        return hasHeaders && hasProtocol
+            ? TraceCaptureState.Complete
+            : TraceCaptureState.Partial;
+    }
+
+    private static bool ResponseCanHaveBody(
+        string method,
+        int statusCode) =>
+        !string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase)
+        && statusCode is not (>= 100 and < 200)
+        && statusCode is not 204
+        && statusCode is not 304;
 
     private static bool IsTextContent(string? mimeType)
     {
@@ -338,6 +765,62 @@ public sealed class HarTraceImporter : ITraceImporter
         return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     }
 
+    private static string? GetOptionalScalarString(
+        JsonElement element,
+        string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.GetRawText(),
+            _ => null
+        };
+    }
+
+    private static JsonElement? TryGetObject(
+        JsonElement element,
+        string propertyName) =>
+        element.TryGetProperty(propertyName, out var value)
+        && value.ValueKind == JsonValueKind.Object
+            ? value
+            : null;
+
+    private static DateTimeOffset? GetOptionalDateTimeOffset(
+        JsonElement element,
+        string propertyName)
+    {
+        var value = GetOptionalString(element, propertyName);
+        return DateTimeOffset.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out var result)
+                ? result
+                : null;
+    }
+
+    private static bool? GetOptionalBoolean(
+        JsonElement element,
+        string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
     private static double? GetOptionalDouble(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var value)
@@ -347,6 +830,27 @@ public sealed class HarTraceImporter : ITraceImporter
         }
 
         return value.TryGetDouble(out var result) ? result : null;
+    }
+
+    private static int? GetOptionalInt32(
+        JsonElement element,
+        string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value)
+            || value.ValueKind != JsonValueKind.Number)
+        {
+            return null;
+        }
+
+        return value.TryGetInt32(out var result) ? result : null;
+    }
+
+    private static int? GetOptionalNonNegativeInt32(
+        JsonElement element,
+        string propertyName)
+    {
+        var value = GetOptionalInt32(element, propertyName);
+        return value >= 0 ? value : null;
     }
 
     private static long? GetOptionalInt64(JsonElement element, string propertyName)
@@ -359,6 +863,29 @@ public sealed class HarTraceImporter : ITraceImporter
 
         return value.TryGetInt64(out var result) ? result : null;
     }
+
+    private static long? GetOptionalNonNegativeInt64(
+        JsonElement element,
+        string propertyName)
+    {
+        var value = GetOptionalInt64(element, propertyName);
+        return value >= 0 ? value : null;
+    }
+
+    private static TimeSpan? GetOptionalDuration(
+        JsonElement element,
+        string propertyName)
+    {
+        var milliseconds = GetOptionalDouble(element, propertyName);
+        return milliseconds is >= 0
+            && double.IsFinite(milliseconds.Value)
+                ? TimeSpan.FromMilliseconds(milliseconds.Value)
+                : null;
+    }
+
+    private sealed record ParsedContent(
+        TraceContent? Content,
+        TraceContentAvailability Availability);
 
     private sealed class MaximumLengthStream : Stream
     {

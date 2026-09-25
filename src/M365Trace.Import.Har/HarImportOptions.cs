@@ -8,9 +8,14 @@ public sealed class HarImportOptions
 
     public const int DefaultMaximumTextLength = 5 * 1024 * 1024;
 
+    public const int DefaultMaximumMetadataItemCount = 10_000;
+
     public long MaximumFileSize { get; init; } = DefaultMaximumFileSize;
 
     public int MaximumEntryCount { get; init; } = DefaultMaximumEntryCount;
 
     public int MaximumTextLength { get; init; } = DefaultMaximumTextLength;
+
+    public int MaximumMetadataItemCount { get; init; } =
+        DefaultMaximumMetadataItemCount;
 }

@@ -22,6 +22,10 @@ public sealed record TraceSessionMetadata
 
     public TraceCacheMetadata? Cache { get; init; }
 
+    public TraceHttpMetadata? Http { get; init; }
+
+    public TracePageMetadata? Page { get; init; }
+
     public TraceTimingMetadata? Timings { get; init; }
 
     public TraceSessionCompleteness? Completeness { get; init; }
@@ -80,6 +84,42 @@ public sealed record TraceRedirectMetadata(
 public sealed record TraceCacheMetadata(
     TraceCacheDisposition Disposition,
     string? EntryReference,
+    TraceMetadataSource Source,
+    TraceCacheEntryMetadata? BeforeRequest = null,
+    TraceCacheEntryMetadata? AfterRequest = null);
+
+public sealed record TraceCacheEntryMetadata(
+    DateTimeOffset? Expires,
+    DateTimeOffset? LastAccess,
+    string? ETag,
+    int? HitCount);
+
+public sealed record TraceNameValue(
+    string Name,
+    string Value);
+
+public sealed record TraceCookieMetadata(
+    string Name,
+    string Value,
+    string? Path,
+    string? Domain,
+    DateTimeOffset? Expires,
+    bool? HttpOnly,
+    bool? Secure,
+    string? SameSite);
+
+public sealed record TraceHttpMetadata(
+    IReadOnlyList<TraceNameValue> QueryEntries,
+    IReadOnlyList<TraceCookieMetadata> RequestCookies,
+    IReadOnlyList<TraceCookieMetadata> ResponseCookies,
+    TraceMetadataSource Source);
+
+public sealed record TracePageMetadata(
+    string Reference,
+    string? Title,
+    DateTimeOffset? StartedAt,
+    TimeSpan? DomContentLoaded,
+    TimeSpan? Load,
     TraceMetadataSource Source);
 
 public sealed record TraceMessageCompleteness(
