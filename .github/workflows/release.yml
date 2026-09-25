@@ -93,9 +93,11 @@ jobs:
           @"
           ## M365 Trace Analyzer $version
 
-          Download and extract ``$assetName``. Open Command Prompt in the extracted folder and run:
+          Download and extract ``$assetName``. Open a terminal in the extracted folder and run:
 
-          ``M365Trace.Web.exe --urls "http://localhost:8080"``
+          ``./M365Trace.Web.exe --urls "http://localhost:8080"``
+
+          The application attempts to open the analyzer in the default web browser. If the browser does not open, navigate to ``http://localhost:8080`` manually.
 
           SHA-256: ``$hash``
           "@ | Set-Content -LiteralPath .\artifacts\release-notes.md

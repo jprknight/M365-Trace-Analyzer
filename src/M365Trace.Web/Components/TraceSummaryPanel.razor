@@ -25,8 +25,13 @@
             </div>
             <div class="summary-metric">
                 <span>Trace window</span>
-                <strong>@FormatDuration(Summary.TraceWindow)</strong>
+                <strong>@FormatTraceWindow(Summary.TraceWindow)</strong>
                 <small>@FormatTraceRange()</small>
+            </div>
+            <div class="summary-metric">
+                <span>Trace age</span>
+                <strong>@FormatTraceAge()</strong>
+                <small>Since latest session</small>
             </div>
             <button type="button"
                     class="summary-metric summary-filter-button"
@@ -146,6 +151,9 @@
     public required TraceSummary Summary { get; set; }
 
     [Parameter]
+    public DateTimeOffset CurrentTime { get; set; } = DateTimeOffset.Now;
+
+    [Parameter]
     public int VisibleSessionCount { get; set; }
 
     [Parameter]
@@ -251,6 +259,106 @@
 
         return $"{Summary.TraceStart.Value.ToLocalTime():G} – "
             + $"{Summary.TraceEnd.Value.ToLocalTime():G}";
+    }
+
+    private static string FormatTraceWindow(TimeSpan duration)
+    {
+        var totalSeconds = Math.Max(0, (long)Math.Floor(duration.TotalSeconds));
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+
+        return $"{minutes:N0} {FormatUnit(minutes, "min")}, "
+            + $"{seconds:N0} {FormatUnit(seconds, "sec")}";
+    }
+
+    private string FormatTraceAge()
+    {
+        if (Summary.TraceEnd is null)
+        {
+            return "Unknown";
+        }
+
+        if (Summary.TraceEnd.Value > CurrentTime)
+        {
+            return "Future-dated";
+        }
+
+        return FormatAge(Summary.TraceEnd.Value, CurrentTime);
+    }
+
+    private static string FormatAge(
+        DateTimeOffset traceEnd,
+        DateTimeOffset currentTime)
+    {
+        var start = traceEnd.ToUniversalTime();
+        var end = currentTime.ToUniversalTime();
+        var years = end.Year - start.Year;
+        if (start.AddYears(years) > end)
+        {
+            years--;
+        }
+
+        var cursor = start.AddYears(years);
+        var months = ((end.Year - cursor.Year) * 12)
+            + end.Month
+            - cursor.Month;
+        if (cursor.AddMonths(months) > end)
+        {
+            months--;
+        }
+
+        cursor = cursor.AddMonths(months);
+        var remaining = end - cursor;
+
+        if (years > 0)
+        {
+            return FormatAgeParts(years, "year", months, "month");
+        }
+
+        var days = (long)Math.Floor(remaining.TotalDays);
+        if (months > 0)
+        {
+            return FormatAgeParts(months, "month", days, "day");
+        }
+
+        remaining -= TimeSpan.FromDays(days);
+        var hours = (long)Math.Floor(remaining.TotalHours);
+        if (days > 0)
+        {
+            return FormatAgeParts(days, "day", hours, "hour");
+        }
+
+        remaining -= TimeSpan.FromHours(hours);
+        var minutes = (long)Math.Floor(remaining.TotalMinutes);
+        if (hours > 0)
+        {
+            return FormatAgeParts(hours, "hour", minutes, "min");
+        }
+
+        remaining -= TimeSpan.FromMinutes(minutes);
+        var seconds = (long)Math.Floor(remaining.TotalSeconds);
+        return minutes > 0
+            ? FormatAgeParts(minutes, "min", seconds, "sec")
+            : $"{seconds:N0} {FormatUnit(seconds, "sec")}";
+    }
+
+    private static string FormatAgeParts(
+        long primaryValue,
+        string primaryUnit,
+        long secondaryValue,
+        string secondaryUnit)
+    {
+        var primary = $"{primaryValue:N0} "
+            + FormatUnit(primaryValue, primaryUnit);
+        return secondaryValue > 0
+            ? $"{primary}, {secondaryValue:N0} "
+                + FormatUnit(secondaryValue, secondaryUnit)
+            : primary;
+    }
+
+    private static string FormatUnit(long value, string unit)
+    {
+        return value == 1 ? unit : $"{unit}s";
     }
 
     private static string FormatDuration(TimeSpan duration)

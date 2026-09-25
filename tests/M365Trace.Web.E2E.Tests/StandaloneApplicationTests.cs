@@ -7,6 +7,9 @@ namespace M365Trace.Web.E2E.Tests;
 
 public sealed class StandaloneApplicationTests
 {
+    private const string DisableBrowserLaunchEnvironmentVariable =
+        "M365_TRACE_DISABLE_BROWSER_LAUNCH";
+
     [Fact]
     public async Task StandalonePackage_SupportsCriticalInvestigationWorkflow()
     {
@@ -35,7 +38,7 @@ public sealed class StandaloneApplicationTests
         try
         {
             await File.WriteAllTextAsync(harPath, CreateHar());
-            process = Process.Start(new ProcessStartInfo
+            var startInfo = new ProcessStartInfo
             {
                 FileName = executablePath,
                 Arguments = $"--urls \"{url}\"",
@@ -44,7 +47,10 @@ public sealed class StandaloneApplicationTests
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
-            });
+            };
+            startInfo.Environment[
+                DisableBrowserLaunchEnvironmentVariable] = "1";
+            process = Process.Start(startInfo);
             Assert.NotNull(process);
 
             var outputTask = process.StandardOutput.ReadToEndAsync();
@@ -161,7 +167,7 @@ public sealed class StandaloneApplicationTests
                 "true",
                 await secondSession.GetAttributeAsync("aria-selected"));
 
-            await secondSession.PressAsync("Home");
+            await firstSession.ClickAsync();
             await page
                 .Locator("tbody tr.selected[data-session-id='1']")
                 .WaitForAsync();
@@ -169,7 +175,34 @@ public sealed class StandaloneApplicationTests
                 "1",
                 await page.EvaluateAsync<string>(
                     "() => document.activeElement?.dataset.sessionId"));
+            Assert.Equal(
+                1,
+                await page.Locator("tbody tr.selected").CountAsync());
+            Assert.Equal(
+                "solid",
+                await firstSession.EvaluateAsync<string>(
+                    "element => getComputedStyle(element).outlineStyle"));
 
+            await firstSession.PressAsync("ArrowDown");
+            await page
+                .Locator("tbody tr.selected[data-session-id='2']")
+                .WaitForAsync();
+            Assert.Equal(
+                "2",
+                await page.EvaluateAsync<string>(
+                    "() => document.activeElement?.dataset.sessionId"));
+            Assert.Equal(
+                1,
+                await page.Locator("tbody tr.selected").CountAsync());
+            Assert.Equal(
+                "none",
+                await firstSession.EvaluateAsync<string>(
+                    "element => getComputedStyle(element).outlineStyle"));
+
+            await secondSession.PressAsync("Home");
+            await page
+                .Locator("tbody tr.selected[data-session-id='1']")
+                .WaitForAsync();
             await firstSession.PressAsync("End");
             await page
                 .Locator("tbody tr.selected[data-session-id='2']")

@@ -49,15 +49,108 @@ public sealed class TraceSummaryPanelTests : IDisposable
         var component = _context.Render<TraceSummaryPanel>(parameters =>
             parameters
                 .Add(parameter => parameter.Summary, summary)
+                .Add(
+                    parameter => parameter.CurrentTime,
+                    DateTimeOffset.Parse("2026-09-25T10:02:00-04:00"))
                 .Add(parameter => parameter.VisibleSessionCount, 9));
 
         Assert.False(component.Find("details").HasAttribute("open"));
         Assert.Contains("9 visible of 12", component.Markup);
-        Assert.Contains("2.0 min", component.Markup);
+        Assert.Contains("2 mins, 0 secs", component.Markup);
+        Assert.Contains("1 day", component.Markup);
+        Assert.Contains("Since latest session", component.Markup);
         Assert.Contains("api.example.test", component.Markup);
         Assert.Contains("M365.Test.Rule", component.Markup);
         Assert.Contains("#8", component.Markup);
         Assert.Contains("OAuth", component.Markup);
+    }
+
+    [Fact]
+    public void Panel_CalculatesTraceAgeFromLatestSession()
+    {
+        var summary = new TraceSummary
+        {
+            TotalSessions = 2,
+            TraceStart = DateTimeOffset.Parse(
+                "2010-01-01T00:00:00+00:00"),
+            TraceEnd = DateTimeOffset.Parse(
+                "2019-03-28T18:30:06+00:00"),
+            SessionsWithFindings = 0,
+            SlowSessions = 0,
+            Severities = new TraceSeveritySummary(0, 0, 0, 2, 0),
+            Statuses = new TraceStatusSummary(0, 2, 0, 0, 0, 0)
+        };
+
+        var component = _context.Render<TraceSummaryPanel>(parameters =>
+            parameters
+                .Add(parameter => parameter.Summary, summary)
+                .Add(
+                    parameter => parameter.CurrentTime,
+                    DateTimeOffset.Parse("2026-09-25T13:59:05+00:00")));
+
+        Assert.Contains("7 years, 5 months", component.Markup);
+    }
+
+    [Fact]
+    public void Panel_ExplainsUnavailableAndFutureTraceAges()
+    {
+        var summary = new TraceSummary
+        {
+            TotalSessions = 0,
+            SessionsWithFindings = 0,
+            SlowSessions = 0,
+            Severities = new TraceSeveritySummary(0, 0, 0, 0, 0),
+            Statuses = new TraceStatusSummary(0, 0, 0, 0, 0, 0)
+        };
+        var component = _context.Render<TraceSummaryPanel>(parameters =>
+            parameters
+                .Add(parameter => parameter.Summary, summary)
+                .Add(
+                    parameter => parameter.CurrentTime,
+                    DateTimeOffset.Parse("2026-09-25T13:59:05+00:00")));
+
+        Assert.Contains("Unknown", component.Markup);
+
+        var futureComponent = _context.Render<TraceSummaryPanel>(parameters =>
+            parameters
+                .Add(
+                    parameter => parameter.Summary,
+                    summary with
+                    {
+                        TraceEnd = DateTimeOffset.Parse(
+                            "2026-09-26T13:59:05+00:00")
+                    })
+                .Add(
+                    parameter => parameter.CurrentTime,
+                    DateTimeOffset.Parse("2026-09-25T13:59:05+00:00")));
+
+        Assert.Contains("Future-dated", futureComponent.Markup);
+    }
+
+    [Theory]
+    [InlineData(0, "0 mins, 0 secs")]
+    [InlineData(1, "0 mins, 1 sec")]
+    [InlineData(60, "1 min, 0 secs")]
+    [InlineData(61, "1 min, 1 sec")]
+    [InlineData(119, "1 min, 59 secs")]
+    public void Panel_FormatsTraceWindowWithWholeMinutesAndSeconds(
+        int totalSeconds,
+        string expected)
+    {
+        var summary = new TraceSummary
+        {
+            TotalSessions = 0,
+            TraceWindow = TimeSpan.FromSeconds(totalSeconds),
+            SessionsWithFindings = 0,
+            SlowSessions = 0,
+            Severities = new TraceSeveritySummary(0, 0, 0, 0, 0),
+            Statuses = new TraceStatusSummary(0, 0, 0, 0, 0, 0)
+        };
+
+        var component = _context.Render<TraceSummaryPanel>(parameters =>
+            parameters.Add(parameter => parameter.Summary, summary));
+
+        Assert.Contains(expected, component.Markup);
     }
 
     [Fact]

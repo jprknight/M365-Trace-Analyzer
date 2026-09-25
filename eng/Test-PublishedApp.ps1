@@ -30,8 +30,10 @@ if (-not (Test-Path -LiteralPath $executablePath)) {
 $stdoutPath = Join-Path $env:TEMP "m365-trace-smoke-$([Guid]::NewGuid().ToString('N')).stdout.log"
 $stderrPath = Join-Path $env:TEMP "m365-trace-smoke-$([Guid]::NewGuid().ToString('N')).stderr.log"
 $process = $null
+$previousBrowserLaunchSetting = $env:M365_TRACE_DISABLE_BROWSER_LAUNCH
 
 try {
+    $env:M365_TRACE_DISABLE_BROWSER_LAUNCH = "1"
     $process = Start-Process `
         -FilePath $executablePath `
         -ArgumentList "--urls", $Url `
@@ -39,6 +41,7 @@ try {
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath `
         -PassThru
+    $env:M365_TRACE_DISABLE_BROWSER_LAUNCH = $previousBrowserLaunchSetting
 
     $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $page = $null
@@ -87,6 +90,8 @@ try {
     Write-Host "Published application smoke test passed at $Url."
 }
 finally {
+    $env:M365_TRACE_DISABLE_BROWSER_LAUNCH = $previousBrowserLaunchSetting
+
     if ($null -ne $process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id
         $process.WaitForExit()

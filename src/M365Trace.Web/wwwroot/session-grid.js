@@ -9,6 +9,13 @@
         row.scrollIntoView({ block: "nearest" });
     };
 
+    document.addEventListener("pointerdown", event => {
+        const row = event.target.closest?.("tr[data-session-row]");
+        if (row) {
+            focusRow(row);
+        }
+    });
+
     document.addEventListener("keydown", event => {
         const row = event.target.closest?.("tr[data-session-row]");
         if (row) {
