@@ -58,7 +58,49 @@ public sealed class TraceSessionMetadataTests
             Cache = new TraceCacheMetadata(
                 TraceCacheDisposition.Revalidated,
                 "entry-17",
-                TraceMetadataSource.HarEntry)
+                TraceMetadataSource.HarEntry,
+                new TraceCacheEntryMetadata(
+                    DateTimeOffset.Parse("2026-09-25T12:00:00Z"),
+                    DateTimeOffset.Parse("2026-09-25T11:00:00Z"),
+                    "\"before\"",
+                    2),
+                new TraceCacheEntryMetadata(
+                    DateTimeOffset.Parse("2026-09-25T13:00:00Z"),
+                    DateTimeOffset.Parse("2026-09-25T12:00:00Z"),
+                    "\"after\"",
+                    3)),
+            Http = new TraceHttpMetadata(
+                [new TraceNameValue("$select", "displayName")],
+                [
+                    new TraceCookieMetadata(
+                        "request-cookie",
+                        "one",
+                        "/",
+                        "example.test",
+                        null,
+                        true,
+                        true,
+                        "Lax")
+                ],
+                [
+                    new TraceCookieMetadata(
+                        "response-cookie",
+                        "two",
+                        "/",
+                        "example.test",
+                        null,
+                        true,
+                        true,
+                        "Strict")
+                ],
+                TraceMetadataSource.HarEntry),
+            Page = new TracePageMetadata(
+                "page-1",
+                "Inbox",
+                DateTimeOffset.Parse("2026-09-25T10:00:00Z"),
+                TimeSpan.FromMilliseconds(500),
+                TimeSpan.FromMilliseconds(900),
+                TraceMetadataSource.HarPage)
         };
 
         Assert.Equal(TraceSourceFormat.Har, metadata.Source.Format);
@@ -75,6 +117,11 @@ public sealed class TraceSessionMetadataTests
         Assert.Equal(
             TraceMetadataSource.HarEntry,
             metadata.Cache.Source);
+        Assert.Equal("\"before\"", metadata.Cache.BeforeRequest?.ETag);
+        Assert.Equal("$select", metadata.Http.QueryEntries[0].Name);
+        Assert.Equal("request-cookie", metadata.Http.RequestCookies[0].Name);
+        Assert.Equal("page-1", metadata.Page.Reference);
+        Assert.Equal(TimeSpan.FromMilliseconds(900), metadata.Page.Load);
     }
 
     [Fact]

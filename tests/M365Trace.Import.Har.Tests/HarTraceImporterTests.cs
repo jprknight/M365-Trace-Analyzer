@@ -25,6 +25,80 @@ public sealed class HarTraceImporterTests
         Assert.Contains("FederatedSTSUnreachable", session.ResponseContent?.Text);
         Assert.Equal(TraceSourceFormat.Har, session.Metadata.Source?.Format);
         Assert.Equal("1", session.Metadata.Source?.SessionReference);
+        Assert.Equal(
+            TraceCaptureState.Partial,
+            session.Metadata.Completeness?.Request.Capture);
+        Assert.Equal(
+            TraceContentAvailability.NotPresent,
+            session.Metadata.Completeness?.Request.Body);
+        Assert.Equal(
+            TraceContentAvailability.Available,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Fact]
+    public async Task ImportAsync_FullHarMetadata_MapsNormalizedGroups()
+    {
+        await using var stream = OpenTestData("full-metadata.har");
+
+        var session = Assert.Single(
+            await new HarTraceImporter().ImportAsync(stream));
+        var metadata = session.Metadata;
+
+        Assert.Equal("page-1", metadata.Source?.PageReference);
+        Assert.Equal("HTTP/2", metadata.Protocol?.RequestVersion);
+        Assert.Equal("HTTP/2", metadata.Protocol?.ResponseVersion);
+        Assert.Equal(120, metadata.Sizes?.Request?.Headers);
+        Assert.Equal(12, metadata.Sizes?.Request?.Body);
+        Assert.Equal(180, metadata.Sizes?.Response?.Headers);
+        Assert.Equal(11, metadata.Sizes?.Response?.Body);
+        Assert.Equal("52.96.10.10", metadata.Endpoints?.Server?.Address);
+        Assert.Equal("42", metadata.Connection?.ConnectionId);
+        Assert.Equal(
+            "https://login.microsoftonline.com/",
+            metadata.Redirect?.Target.AbsoluteUri);
+        Assert.Equal(TraceCacheDisposition.Miss, metadata.Cache?.Disposition);
+        Assert.Equal("\"after\"", metadata.Cache?.EntryReference);
+        Assert.Equal(2, metadata.Cache?.BeforeRequest?.HitCount);
+        Assert.Equal(3, metadata.Cache?.AfterRequest?.HitCount);
+        Assert.Equal("view", metadata.Http?.QueryEntries[0].Name);
+        Assert.Equal("inbox", metadata.Http?.QueryEntries[0].Value);
+        Assert.Equal(
+            "ClientId",
+            metadata.Http?.RequestCookies[0].Name);
+        Assert.True(metadata.Http?.RequestCookies[0].HttpOnly);
+        Assert.Equal(
+            "SessionId",
+            metadata.Http?.ResponseCookies[0].Name);
+        Assert.Equal("page-1", metadata.Page?.Reference);
+        Assert.Equal("Microsoft 365 inbox", metadata.Page?.Title);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(250.5),
+            metadata.Page?.DomContentLoaded);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(800.25),
+            metadata.Page?.Load);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(2),
+            metadata.Timings?.Queued);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(12),
+            metadata.Timings?.Tls);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(40),
+            metadata.Timings?.Wait);
+        Assert.Equal(
+            TraceCaptureState.Complete,
+            metadata.Completeness?.Request.Capture);
+        Assert.Equal(
+            TraceCaptureState.Complete,
+            metadata.Completeness?.Response.Capture);
+        Assert.Equal(
+            TraceContentAvailability.Available,
+            metadata.Completeness?.Request.Body);
+        Assert.Equal(
+            TraceContentAvailability.Available,
+            metadata.Completeness?.Response.Body);
     }
 
     [Fact]
@@ -37,6 +111,9 @@ public sealed class HarTraceImporterTests
 
         Assert.True(session.ResponseContent?.IsBase64Encoded);
         Assert.Equal("{\"status\":\"ok\"}", session.ResponseContent?.Text);
+        Assert.Equal(
+            TraceContentAvailability.Available,
+            session.Metadata.Completeness?.Response.Body);
     }
 
     [Fact]
@@ -125,6 +202,166 @@ public sealed class HarTraceImporterTests
 
         Assert.True(session.ResponseContent?.IsTruncated);
         Assert.Equal(10, session.ResponseContent?.Text?.Length);
+        Assert.Equal(
+            TraceContentAvailability.Truncated,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Fact]
+    public async Task ImportAsync_MissingOptionalResponseBody_IsExplicitlyUnavailable()
+    {
+        const string json =
+            """
+            {
+              "log": {
+                "entries": [{
+                  "startedDateTime": "2026-09-25T10:00:00-04:00",
+                  "time": 1,
+                  "request": {
+                    "method": "GET",
+                    "url": "https://example.test/",
+                    "httpVersion": "HTTP/1.1",
+                    "headers": []
+                  },
+                  "response": {
+                    "status": 200,
+                    "statusText": "OK",
+                    "httpVersion": "HTTP/1.1",
+                    "headers": []
+                  }
+                }]
+              }
+            }
+            """;
+        await using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(json));
+
+        var session = Assert.Single(
+            await new HarTraceImporter().ImportAsync(stream));
+
+        Assert.Null(session.ResponseContent);
+        Assert.Equal(
+            TraceContentAvailability.Unavailable,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Fact]
+    public async Task ImportAsync_MalformedOptionalMetadata_IsIgnored()
+    {
+        const string json =
+            """
+            {
+              "log": {
+                "pages": [{
+                  "id": "page-1",
+                  "startedDateTime": "not-a-date",
+                  "pageTimings": {
+                    "onContentLoad": -1,
+                    "onLoad": "invalid"
+                  }
+                }],
+                "entries": [{
+                  "pageref": "page-1",
+                  "startedDateTime": "2026-09-25T10:00:00-04:00",
+                  "time": 1,
+                  "serverIPAddress": 123,
+                  "request": {
+                    "method": "GET",
+                    "url": "https://example.test/",
+                    "httpVersion": 2,
+                    "headers": [],
+                    "headersSize": -1,
+                    "bodySize": -1,
+                    "queryString": [
+                      null,
+                      { "name": "", "value": "ignored" },
+                      { "name": "valid", "value": "retained" }
+                    ],
+                    "cookies": [{
+                      "name": "cookie",
+                      "value": "value",
+                      "expires": "not-a-date"
+                    }]
+                  },
+                  "response": {
+                    "status": 200,
+                    "headers": [],
+                    "redirectURL": "not-a-url",
+                    "content": {
+                      "size": 0,
+                      "text": ""
+                    }
+                  },
+                  "timings": {
+                    "blocked": -1,
+                    "dns": -1,
+                    "connect": -1,
+                    "ssl": -1,
+                    "send": -1,
+                    "wait": -1,
+                    "receive": -1
+                  }
+                }]
+              }
+            }
+            """;
+        await using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(json));
+
+        var session = Assert.Single(
+            await new HarTraceImporter().ImportAsync(stream));
+
+        Assert.Null(session.Metadata.Protocol);
+        Assert.Null(session.Metadata.Sizes);
+        Assert.Null(session.Metadata.Endpoints);
+        Assert.Null(session.Metadata.Redirect);
+        Assert.Null(session.Metadata.Timings);
+        Assert.Null(session.Metadata.Page?.StartedAt);
+        Assert.Null(session.Metadata.Page?.Load);
+        Assert.Equal("valid", session.Metadata.Http?.QueryEntries[0].Name);
+        Assert.Null(session.Metadata.Http?.RequestCookies[0].Expires);
+    }
+
+    [Fact]
+    public async Task ImportAsync_MetadataItemsBeyondLimit_AreRejected()
+    {
+        const string json =
+            """
+            {
+              "log": {
+                "entries": [{
+                  "startedDateTime": "2026-09-25T10:00:00-04:00",
+                  "time": 1,
+                  "request": {
+                    "method": "GET",
+                    "url": "https://example.test/",
+                    "headers": [],
+                    "queryString": [
+                      { "name": "one", "value": "1" },
+                      { "name": "two", "value": "2" }
+                    ]
+                  },
+                  "response": {
+                    "status": 200,
+                    "headers": [],
+                    "content": {}
+                  }
+                }]
+              }
+            }
+            """;
+        await using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(json));
+        var importer = new HarTraceImporter(
+            new HarImportOptions
+            {
+                MaximumMetadataItemCount = 1
+            });
+
+        var exception = await Assert.ThrowsAsync<HarImportException>(
+            () => importer.ImportAsync(stream));
+
+        Assert.Contains("more than 1 metadata items", exception.Message);
     }
 
     [Fact]

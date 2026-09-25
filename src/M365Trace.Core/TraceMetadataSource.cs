@@ -42,6 +42,7 @@ public enum TraceContentAvailability
     Available,
     NotPresent,
     Truncated,
+    Unavailable,
     UnsupportedEncoding,
     InvalidEncoding
 }

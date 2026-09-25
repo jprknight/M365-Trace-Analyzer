@@ -52,7 +52,7 @@ Status markers in this document apply only where the complete listed outcome has
 Phase 1 is complete. Phase 2 is underway, and Phase 3 remains planned:
 
 - Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
-- CI now validates formatting, warning-free builds, 186 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- CI now validates formatting, warning-free builds, 190 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
 - A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, diagnostic headers, and request-only detail selection.
 - CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
 - Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
@@ -273,7 +273,7 @@ If the selected session is removed from the visible result:
 - Add source provenance to each field or metadata group where ambiguity would otherwise lead engineers to assume inferred values.
 - Avoid storing arbitrary unbounded metadata dictionaries in the UI-facing model; explicitly map supported diagnostic fields.
 
-#### 6. Improve HAR fidelity
+#### 6. [x] Improve HAR fidelity
 
 - Parse HAR HTTP version, headers/body sizes, cookies, query-string entries, cache information, redirect URL, server IP, connection ID, and detailed timings.
 - Parse page references and page timing where present so sessions can be grouped by navigation.
