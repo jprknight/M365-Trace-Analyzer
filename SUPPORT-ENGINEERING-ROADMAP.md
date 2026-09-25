@@ -52,7 +52,7 @@ Status markers in this document apply only where the complete listed outcome has
 Phase 1 is complete. Phase 2 is underway, and Phase 3 remains planned:
 
 - Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
-- CI now validates formatting, warning-free builds, 190 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- CI now validates formatting, warning-free builds, 196 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
 - A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, diagnostic headers, and request-only detail selection.
 - CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
 - Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
@@ -280,7 +280,7 @@ If the selected session is removed from the visible result:
 - Preserve unknown/unsupported HAR fields only when required for future compatibility, without weakening bounds.
 - Record whether body content was missing from the HAR, Base64-decoded, truncated, or unavailable.
 
-#### 7. Improve SAZ fidelity
+#### 7. [x] Improve SAZ fidelity
 
 - Map useful `SessionTimers` values instead of retaining only start and total duration.
 - Map supported session flags for client/server IP, process name and ID, HTTPS/TLS, socket/connection identifiers, protocol, and relevant Fiddler diagnostic metadata.

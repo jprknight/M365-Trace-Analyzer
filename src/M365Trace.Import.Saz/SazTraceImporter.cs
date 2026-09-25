@@ -245,6 +245,12 @@ public sealed partial class SazTraceImporter : ITraceImporter
                 archive,
                 files.Response,
                 cancellationToken));
+        var requestContent = CreateContent(
+            request.Body,
+            request.Headers);
+        var responseContent = response.Exists
+            ? CreateContent(response.Body, response.Headers)
+            : ParsedContent.Missing;
 
         return new TraceSession
         {
@@ -258,13 +264,34 @@ public sealed partial class SazTraceImporter : ITraceImporter
             Duration = metadata.Duration ?? TimeSpan.Zero,
             RequestHeaders = request.Headers,
             ResponseHeaders = response.Headers,
-            RequestContent = CreateContent(request.Body, request.Headers),
-            ResponseContent = CreateContent(response.Body, response.Headers),
+            RequestContent = requestContent.Content,
+            ResponseContent = responseContent.Content,
             Metadata = new TraceSessionMetadata
             {
                 Source = new TraceSourceMetadata(
                     TraceSourceFormat.Saz,
-                    sessionId.ToString(CultureInfo.InvariantCulture))
+                    sessionId.ToString(CultureInfo.InvariantCulture)),
+                Protocol = ParseProtocol(request, response),
+                Sizes = ParseSizes(request, response),
+                Endpoints = ParseEndpoints(metadata.Flags),
+                Process = ParseProcess(metadata.Flags),
+                Connection = ParseConnection(metadata.Flags),
+                Tls = ParseTls(metadata.Flags),
+                Timings = metadata.Timings,
+                Completeness = new TraceSessionCompleteness(
+                    new TraceMessageCompleteness(
+                        request.Protocol is null
+                            ? TraceCaptureState.Partial
+                            : TraceCaptureState.Complete,
+                        requestContent.Availability),
+                    new TraceMessageCompleteness(
+                        response.Exists
+                            ? response.Protocol is null
+                                ? TraceCaptureState.Partial
+                                : TraceCaptureState.Complete
+                            : TraceCaptureState.Missing,
+                        responseContent.Availability),
+                    TraceMetadataSource.SazMetadata)
             }
         };
     }
@@ -282,8 +309,16 @@ public sealed partial class SazTraceImporter : ITraceImporter
         var method = firstLineParts[0];
         var target = firstLineParts[1];
         var url = BuildRequestUri(method, target, message.Headers, metadata.Flags);
+        var protocol = firstLineParts.Length >= 3
+            ? firstLineParts[^1]
+            : null;
 
-        return new ParsedRequest(method, url, message.Headers, message.Body);
+        return new ParsedRequest(
+            method,
+            url,
+            protocol,
+            message.Headers,
+            message.Body);
     }
 
     private static ParsedResponse ParseResponse(byte[] bytes)
@@ -302,8 +337,10 @@ public sealed partial class SazTraceImporter : ITraceImporter
         }
 
         return new ParsedResponse(
+            true,
             statusCode,
             firstLineParts.Length == 3 ? firstLineParts[2] : null,
+            firstLineParts[0],
             message.Headers,
             message.Body);
     }
@@ -334,18 +371,29 @@ public sealed partial class SazTraceImporter : ITraceImporter
         return new ParsedHttpMessage(lines[0], headers, body);
     }
 
-    private TraceContent? CreateContent(
+    private ParsedContent CreateContent(
         byte[] body,
         IReadOnlyList<TraceHeader> headers)
     {
         if (body.Length == 0)
         {
-            return null;
+            return ParsedContent.NotPresent;
         }
 
         var contentType = GetHeader(headers, "Content-Type");
         var mimeType = contentType?.Split(';', 2)[0].Trim();
-        var decodedBody = TryDecompressBody(body, GetHeader(headers, "Content-Encoding"));
+        var decodedBody = DecodeBody(body, headers);
+        if (decodedBody.Error is not null)
+        {
+            return new ParsedContent(
+                new TraceContent(
+                    null,
+                    mimeType,
+                    body.LongLength,
+                    false,
+                    false),
+                decodedBody.Error.Value);
+        }
 
         string text;
         if (string.Equals(
@@ -353,31 +401,40 @@ public sealed partial class SazTraceImporter : ITraceImporter
                 "application/mapi-http",
                 StringComparison.OrdinalIgnoreCase))
         {
-            text = DecodeMapiHttpDiagnostics(decodedBody);
+            text = DecodeMapiHttpDiagnostics(decodedBody.Body);
             if (string.IsNullOrWhiteSpace(text))
             {
-                return new TraceContent(null, mimeType, body.LongLength, false, false);
+                return new ParsedContent(
+                    new TraceContent(
+                        null,
+                        mimeType,
+                        body.LongLength,
+                        false,
+                        false),
+                    TraceContentAvailability.Available);
             }
         }
         else if (!IsTextContent(mimeType))
         {
             var base64Data = IsPreviewableImage(mimeType)
-                && decodedBody.Length <= _options.MaximumTextLength
-                    ? Convert.ToBase64String(decodedBody)
+                && decodedBody.Body.Length <= _options.MaximumTextLength
+                    ? Convert.ToBase64String(decodedBody.Body)
                     : null;
 
-            return new TraceContent(
-                null,
-                mimeType,
-                body.LongLength,
-                false,
-                false,
-                base64Data);
+            return new ParsedContent(
+                new TraceContent(
+                    null,
+                    mimeType,
+                    body.LongLength,
+                    false,
+                    false,
+                    base64Data),
+                TraceContentAvailability.Available);
         }
         else
         {
             var encoding = GetTextEncoding(contentType);
-            text = encoding.GetString(decodedBody);
+            text = encoding.GetString(decodedBody.Body);
         }
 
         var isTruncated = text.Length > _options.MaximumTextLength;
@@ -387,7 +444,16 @@ public sealed partial class SazTraceImporter : ITraceImporter
             text = text[.._options.MaximumTextLength];
         }
 
-        return new TraceContent(text, mimeType, body.LongLength, false, isTruncated);
+        return new ParsedContent(
+            new TraceContent(
+                text,
+                mimeType,
+                body.LongLength,
+                false,
+                isTruncated),
+            isTruncated
+                ? TraceContentAvailability.Truncated
+                : TraceContentAvailability.Available);
     }
 
     private static bool IsPreviewableImage(string? mimeType) =>
@@ -477,27 +543,94 @@ public sealed partial class SazTraceImporter : ITraceImporter
         }
     }
 
-    private byte[] TryDecompressBody(byte[] body, string? contentEncoding)
+    private BodyDecodeResult DecodeBody(
+        byte[] body,
+        IReadOnlyList<TraceHeader> headers)
     {
-        if (string.IsNullOrWhiteSpace(contentEncoding))
+        var transferEncoding = GetHeader(headers, "Transfer-Encoding");
+        var transferResult = DecodeTransferEncoding(body, transferEncoding);
+        if (transferResult.Error is not null)
         {
-            return body;
+            return transferResult;
+        }
+
+        return DecodeContentEncoding(
+            transferResult.Body,
+            GetHeader(headers, "Content-Encoding"));
+    }
+
+    private static BodyDecodeResult DecodeTransferEncoding(
+        byte[] body,
+        string? transferEncoding)
+    {
+        if (string.IsNullOrWhiteSpace(transferEncoding))
+        {
+            return new BodyDecodeResult(body, null);
+        }
+
+        var encodings = transferEncoding
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (encodings.Length != 1
+            || !string.Equals(
+                encodings[0],
+                "chunked",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new BodyDecodeResult(
+                [],
+                TraceContentAvailability.UnsupportedEncoding);
+        }
+
+        try
+        {
+            return new BodyDecodeResult(DecodeChunkedBody(body), null);
+        }
+        catch (InvalidDataException)
+        {
+            return new BodyDecodeResult(
+                [],
+                TraceContentAvailability.InvalidEncoding);
+        }
+    }
+
+    private BodyDecodeResult DecodeContentEncoding(
+        byte[] body,
+        string? contentEncoding)
+    {
+        if (string.IsNullOrWhiteSpace(contentEncoding)
+            || string.Equals(
+                contentEncoding.Trim(),
+                "identity",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new BodyDecodeResult(body, null);
+        }
+
+        var encodings = contentEncoding
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (encodings.Length != 1)
+        {
+            return new BodyDecodeResult(
+                [],
+                TraceContentAvailability.UnsupportedEncoding);
         }
 
         try
         {
             using var input = new MemoryStream(body);
-            using Stream decompressionStream = contentEncoding.Trim().ToLowerInvariant() switch
+            using Stream? decompressionStream = encodings[0].ToLowerInvariant() switch
             {
                 "gzip" => new GZipStream(input, CompressionMode.Decompress),
                 "deflate" => new DeflateStream(input, CompressionMode.Decompress),
                 "br" => new BrotliStream(input, CompressionMode.Decompress),
-                _ => input
+                _ => null
             };
 
-            if (ReferenceEquals(decompressionStream, input))
+            if (decompressionStream is null)
             {
-                return body;
+                return new BodyDecodeResult(
+                    [],
+                    TraceContentAvailability.UnsupportedEncoding);
             }
 
             using var output = new MemoryStream();
@@ -523,13 +656,309 @@ public sealed partial class SazTraceImporter : ITraceImporter
                 output.Write(buffer, 0, read);
             }
 
-            return output.ToArray();
+            return new BodyDecodeResult(output.ToArray(), null);
         }
         catch (InvalidDataException)
         {
-            return body;
+            return new BodyDecodeResult(
+                [],
+                TraceContentAvailability.InvalidEncoding);
+        }
+        catch (IOException)
+        {
+            return new BodyDecodeResult(
+                [],
+                TraceContentAvailability.InvalidEncoding);
         }
     }
+
+    private static byte[] DecodeChunkedBody(byte[] body)
+    {
+        using var output = new MemoryStream();
+        var position = 0;
+
+        while (true)
+        {
+            var lineEnd = FindCrlf(body, position);
+            if (lineEnd < 0)
+            {
+                throw new InvalidDataException(
+                    "A chunk size line is incomplete.");
+            }
+
+            var sizeText = Encoding.ASCII
+                .GetString(body, position, lineEnd - position)
+                .Split(';', 2)[0]
+                .Trim();
+            if (!int.TryParse(
+                    sizeText,
+                    NumberStyles.HexNumber,
+                    CultureInfo.InvariantCulture,
+                    out var chunkSize)
+                || chunkSize < 0)
+            {
+                throw new InvalidDataException(
+                    "A chunk size is invalid.");
+            }
+
+            position = lineEnd + 2;
+            if (chunkSize == 0)
+            {
+                return output.ToArray();
+            }
+
+            if (position + chunkSize + 2 > body.Length)
+            {
+                throw new InvalidDataException(
+                    "A chunk extends beyond the captured body.");
+            }
+
+            output.Write(body, position, chunkSize);
+            position += chunkSize;
+            if (body[position] != '\r' || body[position + 1] != '\n')
+            {
+                throw new InvalidDataException(
+                    "A chunk is missing its terminator.");
+            }
+
+            position += 2;
+        }
+    }
+
+    private static int FindCrlf(byte[] bytes, int start)
+    {
+        for (var index = start; index < bytes.Length - 1; index++)
+        {
+            if (bytes[index] == '\r' && bytes[index + 1] == '\n')
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static TraceProtocolMetadata? ParseProtocol(
+        ParsedRequest request,
+        ParsedResponse response)
+    {
+        if (request.Protocol is null && response.Protocol is null)
+        {
+            return null;
+        }
+
+        return new TraceProtocolMetadata(
+            request.Protocol,
+            response.Protocol,
+            TraceMetadataSource.HttpMessage);
+    }
+
+    private static TraceSizeMetadata ParseSizes(
+        ParsedRequest request,
+        ParsedResponse response) =>
+        new(
+            new TraceMessageSize(null, request.Body.LongLength),
+            response.Exists
+                ? new TraceMessageSize(null, response.Body.LongLength)
+                : null,
+            TraceMetadataSource.Derived);
+
+    private static TraceEndpointMetadata? ParseEndpoints(
+        IReadOnlyDictionary<string, string> flags)
+    {
+        var clientAddress = GetFlag(
+            flags,
+            "x-clientip",
+            "x-client-ip");
+        var clientPort = ParseOptionalPort(GetFlag(
+            flags,
+            "x-clientport",
+            "x-client-port"));
+        var serverValue = GetFlag(
+            flags,
+            "x-hostIP",
+            "x-serverip",
+            "x-server-ip");
+        var server = ParseEndpoint(
+            serverValue,
+            ParseOptionalPort(GetFlag(
+                flags,
+                "x-serverport",
+                "x-server-port")));
+
+        if (string.IsNullOrWhiteSpace(clientAddress) && server is null)
+        {
+            return null;
+        }
+
+        return new TraceEndpointMetadata(
+            string.IsNullOrWhiteSpace(clientAddress)
+                ? null
+                : new TraceEndpoint(clientAddress, clientPort),
+            server,
+            TraceMetadataSource.SazSessionFlag);
+    }
+
+    private static TraceProcessMetadata? ParseProcess(
+        IReadOnlyDictionary<string, string> flags)
+    {
+        var processInfo = GetFlag(
+            flags,
+            "x-processinfo",
+            "x-process-info");
+        var processName = GetFlag(
+            flags,
+            "x-processname",
+            "x-process-name");
+        var processId = ParseOptionalNonNegativeInt32(GetFlag(
+            flags,
+            "x-processid",
+            "x-process-id"));
+
+        if (!string.IsNullOrWhiteSpace(processInfo))
+        {
+            var separator = processInfo.LastIndexOf(':');
+            if (separator > 0
+                && separator < processInfo.Length - 1
+                && int.TryParse(
+                    processInfo[(separator + 1)..],
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var parsedId)
+                && parsedId >= 0)
+            {
+                processName ??= processInfo[..separator];
+                processId ??= parsedId;
+            }
+            else
+            {
+                processName ??= processInfo;
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(processName) && processId is null
+            ? null
+            : new TraceProcessMetadata(
+                processName,
+                processId,
+                TraceMetadataSource.SazSessionFlag);
+    }
+
+    private static TraceConnectionMetadata? ParseConnection(
+        IReadOnlyDictionary<string, string> flags)
+    {
+        var connectionId = GetFlag(
+            flags,
+            "x-connectionid",
+            "x-connection");
+        var socketId = GetFlag(
+            flags,
+            "x-socketid",
+            "x-socket");
+
+        return connectionId is null && socketId is null
+            ? null
+            : new TraceConnectionMetadata(
+                connectionId,
+                socketId,
+                TraceMetadataSource.SazSessionFlag);
+    }
+
+    private static TraceTlsMetadata? ParseTls(
+        IReadOnlyDictionary<string, string> flags)
+    {
+        var protocol = GetFlag(
+            flags,
+            "x-tlsversion",
+            "x-tls-version");
+        var cipher = GetFlag(
+            flags,
+            "x-tlscipher",
+            "x-tls-cipher");
+        var subject = GetFlag(
+            flags,
+            "x-servercertcn",
+            "x-server-cert-subject");
+        var issuer = GetFlag(
+            flags,
+            "x-servercertissuer",
+            "x-server-cert-issuer");
+        var thumbprint = GetFlag(
+            flags,
+            "x-servercertthumbprint",
+            "x-server-cert-thumbprint");
+
+        return protocol is null
+            && cipher is null
+            && subject is null
+            && issuer is null
+            && thumbprint is null
+                ? null
+                : new TraceTlsMetadata(
+                    protocol,
+                    cipher,
+                    subject,
+                    issuer,
+                    thumbprint,
+                    TraceMetadataSource.SazSessionFlag);
+    }
+
+    private static string? GetFlag(
+        IReadOnlyDictionary<string, string> flags,
+        params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (flags.TryGetValue(name, out var value)
+                && !string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static TraceEndpoint? ParseEndpoint(
+        string? value,
+        int? fallbackPort)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (Uri.TryCreate(
+                $"tcp://{trimmed}",
+                UriKind.Absolute,
+                out var endpointUri))
+        {
+            return new TraceEndpoint(
+                endpointUri.Host,
+                endpointUri.IsDefaultPort
+                    ? fallbackPort
+                    : endpointUri.Port);
+        }
+
+        return new TraceEndpoint(trimmed, fallbackPort);
+    }
+
+    private static int? ParseOptionalPort(string? value)
+    {
+        var port = ParseOptionalNonNegativeInt32(value);
+        return port is >= 0 and <= 65535 ? port : null;
+    }
+
+    private static int? ParseOptionalNonNegativeInt32(string? value) =>
+        int.TryParse(
+            value,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out var parsed)
+        && parsed >= 0
+            ? parsed
+            : null;
 
     private static Uri BuildRequestUri(
         string method,
@@ -623,16 +1052,97 @@ public sealed partial class SazTraceImporter : ITraceImporter
             var duration = startedAt is not null && completedAt is not null
                 ? completedAt - startedAt
                 : null;
+            var timingMetadata = timers is null
+                ? null
+                : ParseTimings(timers);
 
             return new SazMetadata(
                 flags,
                 startedAt,
-                duration is { } elapsed && elapsed >= TimeSpan.Zero ? elapsed : null);
+                duration is { } elapsed && elapsed >= TimeSpan.Zero
+                    ? elapsed
+                    : null,
+                timingMetadata);
         }
         catch (XmlException exception)
         {
             throw new SazImportException("A SAZ session metadata file contains invalid XML.", exception);
         }
+    }
+
+    private static TraceTimingMetadata? ParseTimings(XElement timers)
+    {
+        var send = Difference(
+            ParseTimestamp((string?)timers.Attribute("FiddlerBeginRequest")),
+            ParseTimestamp((string?)timers.Attribute("ServerGotRequest")))
+            ?? Difference(
+                ParseTimestamp((string?)timers.Attribute("ClientBeginRequest")),
+                ParseTimestamp((string?)timers.Attribute("ClientDoneRequest")));
+        var wait = Difference(
+            ParseTimestamp((string?)timers.Attribute("ServerGotRequest")),
+            ParseTimestamp((string?)timers.Attribute("ServerBeginResponse")));
+        var receive = Difference(
+            ParseTimestamp((string?)timers.Attribute("ServerBeginResponse")),
+            ParseTimestamp((string?)timers.Attribute("ServerDoneResponse")))
+            ?? Difference(
+                ParseTimestamp((string?)timers.Attribute("ClientBeginResponse")),
+                ParseTimestamp((string?)timers.Attribute("ClientDoneResponse")));
+        var dns = ParseMillisecondsAttribute(timers, "DNSTime");
+        var connect = ParseMillisecondsAttribute(
+            timers,
+            "TCPConnectTime");
+        var tls = ParseMillisecondsAttribute(
+            timers,
+            "HTTPSHandshakeTime");
+
+        if (send is null
+            && wait is null
+            && receive is null
+            && dns is null
+            && connect is null
+            && tls is null)
+        {
+            return null;
+        }
+
+        return new TraceTimingMetadata
+        {
+            Dns = dns,
+            Connect = connect,
+            Tls = tls,
+            Send = send,
+            Wait = wait,
+            Receive = receive,
+            Source = TraceMetadataSource.SazMetadata
+        };
+    }
+
+    private static TimeSpan? ParseMillisecondsAttribute(
+        XElement element,
+        string attributeName)
+    {
+        var value = (string?)element.Attribute(attributeName);
+        return double.TryParse(
+            value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var milliseconds)
+        && double.IsFinite(milliseconds)
+        && milliseconds >= 0
+            ? TimeSpan.FromMilliseconds(milliseconds)
+            : null;
+    }
+
+    private static TimeSpan? Difference(
+        DateTimeOffset? start,
+        DateTimeOffset? end)
+    {
+        if (start is null || end is null || end < start)
+        {
+            return null;
+        }
+
+        return end - start;
     }
 
     private async Task<byte[]> ReadEntryBytesAsync(
@@ -846,10 +1356,12 @@ public sealed partial class SazTraceImporter : ITraceImporter
     private sealed record SazMetadata(
         IReadOnlyDictionary<string, string> Flags,
         DateTimeOffset? StartedAt,
-        TimeSpan? Duration)
+        TimeSpan? Duration,
+        TraceTimingMetadata? Timings)
     {
         public static SazMetadata Empty { get; } = new(
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            null,
             null,
             null);
     }
@@ -862,19 +1374,41 @@ public sealed partial class SazTraceImporter : ITraceImporter
     private sealed record ParsedRequest(
         string Method,
         Uri Url,
+        string? Protocol,
         IReadOnlyList<TraceHeader> Headers,
         byte[] Body);
 
     private sealed record ParsedResponse(
+        bool Exists,
         int StatusCode,
         string? StatusText,
+        string? Protocol,
         IReadOnlyList<TraceHeader> Headers,
         byte[] Body)
     {
         public static ParsedResponse Empty { get; } = new(
+            false,
             0,
             "No response",
+            null,
             [],
             []);
     }
+
+    private sealed record ParsedContent(
+        TraceContent? Content,
+        TraceContentAvailability Availability)
+    {
+        public static ParsedContent NotPresent { get; } = new(
+            null,
+            TraceContentAvailability.NotPresent);
+
+        public static ParsedContent Missing { get; } = new(
+            null,
+            TraceContentAvailability.NotPresent);
+    }
+
+    private sealed record BodyDecodeResult(
+        byte[] Body,
+        TraceContentAvailability? Error);
 }

@@ -35,9 +35,26 @@ public sealed class SazTraceImporterTests
                 <Session>
                   <SessionTimers
                     ClientBeginRequest="2026-09-23T10:00:00.0000000-04:00"
-                    ClientDoneResponse="2026-09-23T10:00:01.2500000-04:00" />
+                    ClientDoneRequest="2026-09-23T10:00:00.0100000-04:00"
+                    FiddlerBeginRequest="2026-09-23T10:00:00.0150000-04:00"
+                    ServerGotRequest="2026-09-23T10:00:00.0200000-04:00"
+                    ServerBeginResponse="2026-09-23T10:00:01.0000000-04:00"
+                    ServerDoneResponse="2026-09-23T10:00:01.2000000-04:00"
+                    ClientDoneResponse="2026-09-23T10:00:01.2500000-04:00"
+                    DNSTime="10"
+                    TCPConnectTime="20"
+                    HTTPSHandshakeTime="30" />
                   <SessionFlags>
                     <SessionFlag N="x-HTTPS" V="true" />
+                    <SessionFlag N="x-clientip" V="10.0.0.5" />
+                    <SessionFlag N="x-clientport" V="50000" />
+                    <SessionFlag N="x-hostIP" V="52.96.10.10:443" />
+                    <SessionFlag N="x-processinfo" V="OUTLOOK.EXE:1234" />
+                    <SessionFlag N="x-connectionid" V="connection-7" />
+                    <SessionFlag N="x-socketid" V="socket-9" />
+                    <SessionFlag N="x-tlsversion" V="TLS 1.3" />
+                    <SessionFlag N="x-tlscipher" V="TLS_AES_256_GCM_SHA384" />
+                    <SessionFlag N="x-servercertcn" V="CN=outlook.office.com" />
                   </SessionFlags>
                 </Session>
                 """);
@@ -56,6 +73,46 @@ public sealed class SazTraceImporterTests
         Assert.Equal("FederatedSTSUnreachable", session.ResponseContent?.Text?.Trim());
         Assert.Equal(TraceSourceFormat.Saz, session.Metadata.Source?.Format);
         Assert.Equal("1", session.Metadata.Source?.SessionReference);
+        Assert.Equal("HTTP/1.1", session.Metadata.Protocol?.RequestVersion);
+        Assert.Equal("HTTP/1.1", session.Metadata.Protocol?.ResponseVersion);
+        Assert.Equal("10.0.0.5", session.Metadata.Endpoints?.Client?.Address);
+        Assert.Equal(50000, session.Metadata.Endpoints?.Client?.Port);
+        Assert.Equal("52.96.10.10", session.Metadata.Endpoints?.Server?.Address);
+        Assert.Equal(443, session.Metadata.Endpoints?.Server?.Port);
+        Assert.Equal("OUTLOOK.EXE", session.Metadata.Process?.Name);
+        Assert.Equal(1234, session.Metadata.Process?.Id);
+        Assert.Equal(
+            "connection-7",
+            session.Metadata.Connection?.ConnectionId);
+        Assert.Equal("socket-9", session.Metadata.Connection?.SocketId);
+        Assert.Equal("TLS 1.3", session.Metadata.Tls?.Protocol);
+        Assert.Equal(
+            "TLS_AES_256_GCM_SHA384",
+            session.Metadata.Tls?.Cipher);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(10),
+            session.Metadata.Timings?.Dns);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(20),
+            session.Metadata.Timings?.Connect);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(30),
+            session.Metadata.Timings?.Tls);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(5),
+            session.Metadata.Timings?.Send);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(980),
+            session.Metadata.Timings?.Wait);
+        Assert.Equal(
+            TimeSpan.FromMilliseconds(200),
+            session.Metadata.Timings?.Receive);
+        Assert.Equal(
+            TraceCaptureState.Complete,
+            session.Metadata.Completeness?.Response.Capture);
+        Assert.Equal(
+            TraceContentAvailability.Available,
+            session.Metadata.Completeness?.Response.Body);
     }
 
     [Fact]
@@ -137,6 +194,161 @@ public sealed class SazTraceImporterTests
         Assert.Equal(
             Convert.ToBase64String(image),
             session.ResponseContent?.Base64Data);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ChunkedCompressedBody_DecodesInWireOrder()
+    {
+        var compressed = CompressGzip(
+            Encoding.UTF8.GetBytes("{\"status\":\"ok\"}"));
+        var chunked = EncodeChunked(compressed, 5);
+
+        await using var stream = CreateArchive(archive =>
+        {
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "GET /compressed HTTP/1.1\r\n"
+                + "Host: example.test\r\n"
+                + "\r\n");
+            var headers = Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: application/json\r\n"
+                + "Transfer-Encoding: chunked\r\n"
+                + "Content-Encoding: gzip\r\n"
+                + "\r\n");
+            AddBinaryEntry(
+                archive,
+                "raw/1_s.txt",
+                [.. headers, .. chunked]);
+        });
+
+        var session = Assert.Single(
+            await new SazTraceImporter().ImportAsync(stream));
+
+        Assert.Equal("{\"status\":\"ok\"}", session.ResponseContent?.Text);
+        Assert.Equal(
+            TraceContentAvailability.Available,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Theory]
+    [InlineData("zstd", "encoded", TraceContentAvailability.UnsupportedEncoding)]
+    [InlineData("gzip", "not-gzip", TraceContentAvailability.InvalidEncoding)]
+    public async Task ImportAsync_ContentEncodingFailure_IsExplicit(
+        string contentEncoding,
+        string body,
+        TraceContentAvailability expectedAvailability)
+    {
+        await using var stream = CreateArchive(archive =>
+        {
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "GET /encoded HTTP/1.1\r\n"
+                + "Host: example.test\r\n"
+                + "\r\n");
+            AddEntry(
+                archive,
+                "raw/1_s.txt",
+                "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: text/plain\r\n"
+                + $"Content-Encoding: {contentEncoding}\r\n"
+                + "\r\n"
+                + body);
+        });
+
+        var session = Assert.Single(
+            await new SazTraceImporter().ImportAsync(stream));
+
+        Assert.Null(session.ResponseContent?.Text);
+        Assert.Equal(
+            expectedAvailability,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Fact]
+    public async Task ImportAsync_MalformedChunkedBody_IsExplicitlyInvalid()
+    {
+        await using var stream = CreateArchive(archive =>
+        {
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "GET /chunked HTTP/1.1\r\n"
+                + "Host: example.test\r\n"
+                + "\r\n");
+            AddEntry(
+                archive,
+                "raw/1_s.txt",
+                "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: text/plain\r\n"
+                + "Transfer-Encoding: chunked\r\n"
+                + "\r\n"
+                + "A\r\nshort\r\n0\r\n\r\n");
+        });
+
+        var session = Assert.Single(
+            await new SazTraceImporter().ImportAsync(stream));
+
+        Assert.Null(session.ResponseContent?.Text);
+        Assert.Equal(
+            TraceContentAvailability.InvalidEncoding,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Fact]
+    public async Task ImportAsync_RequestOnlySession_PreservesMissingResponse()
+    {
+        await using var stream = CreateArchive(archive =>
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "POST /request-only HTTP/1.1\r\n"
+                + "Host: example.test\r\n"
+                + "Content-Type: text/plain\r\n"
+                + "\r\n"
+                + "request body"));
+
+        var session = Assert.Single(
+            await new SazTraceImporter().ImportAsync(stream));
+
+        Assert.Equal(0, session.StatusCode);
+        Assert.Equal("No response", session.StatusText);
+        Assert.Equal("request body", session.RequestContent?.Text);
+        Assert.Null(session.ResponseContent);
+        Assert.Equal(
+            TraceCaptureState.Missing,
+            session.Metadata.Completeness?.Response.Capture);
+        Assert.Equal(
+            TraceContentAvailability.NotPresent,
+            session.Metadata.Completeness?.Response.Body);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ConnectSession_PreservesProtocolAndHttpsTarget()
+    {
+        await using var stream = CreateArchive(archive =>
+        {
+            AddEntry(
+                archive,
+                "raw/1_c.txt",
+                "CONNECT example.test:443 HTTP/1.1\r\n"
+                + "Host: example.test:443\r\n"
+                + "\r\n");
+            AddEntry(
+                archive,
+                "raw/1_s.txt",
+                "HTTP/1.1 200 Connection Established\r\n\r\n");
+        });
+
+        var session = Assert.Single(
+            await new SazTraceImporter().ImportAsync(stream));
+
+        Assert.Equal("CONNECT", session.Method);
+        Assert.Equal("https://example.test/", session.Url.AbsoluteUri);
+        Assert.Equal("HTTP/1.1", session.Metadata.Protocol?.RequestVersion);
+        Assert.Equal("HTTP/1.1", session.Metadata.Protocol?.ResponseVersion);
     }
 
     [Theory]
@@ -383,5 +595,37 @@ public sealed class SazTraceImporterTests
         var entry = archive.CreateEntry(path);
         using var stream = entry.Open();
         stream.Write(content);
+    }
+
+    private static byte[] CompressGzip(byte[] content)
+    {
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(
+            output,
+            CompressionLevel.SmallestSize,
+            leaveOpen: true))
+        {
+            gzip.Write(content);
+        }
+
+        return output.ToArray();
+    }
+
+    private static byte[] EncodeChunked(byte[] content, int chunkSize)
+    {
+        using var output = new MemoryStream();
+
+        for (var offset = 0; offset < content.Length; offset += chunkSize)
+        {
+            var count = Math.Min(chunkSize, content.Length - offset);
+            var prefix = Encoding.ASCII.GetBytes(
+                $"{count:X}\r\n");
+            output.Write(prefix);
+            output.Write(content, offset, count);
+            output.Write("\r\n"u8);
+        }
+
+        output.Write("0\r\n\r\n"u8);
+        return output.ToArray();
     }
 }
