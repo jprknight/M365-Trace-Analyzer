@@ -5,6 +5,8 @@ using M365Trace.Import.Saz;
 using M365Trace.Rules;
 using M365Trace.Rules.Legacy;
 using M365Trace.Web.Services;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +24,7 @@ builder.Services.AddSingleton<VersionUpdateService>();
 builder.Services.AddSingleton<SessionQueryService>();
 builder.Services.AddSingleton<TraceSummaryService>();
 builder.Services.AddSingleton<DiagnosticHeaderService>();
+builder.Services.AddSingleton<DefaultBrowserLauncher>();
 builder.Services.AddSingleton<ITraceImporter, HarTraceImporter>();
 builder.Services.AddSingleton<ITraceImporter, SazTraceImporter>();
 builder.Services.AddSingleton<LegacyRulesetData>();
@@ -57,5 +60,16 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+var server = app.Services.GetRequiredService<IServer>();
+var browserLauncher = app.Services.GetRequiredService<DefaultBrowserLauncher>();
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var addresses = server.Features
+        .Get<IServerAddressesFeature>()?
+        .Addresses
+        ?? app.Urls;
+    browserLauncher.TryLaunch(addresses);
+});
 
 app.Run();

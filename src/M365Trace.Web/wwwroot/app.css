@@ -341,7 +341,7 @@ main {
 
 .summary-overview {
     display: grid;
-    grid-template-columns: repeat(5, minmax(8rem, 1fr));
+    grid-template-columns: repeat(6, minmax(8rem, 1fr));
     gap: 0.7rem;
 }
 
@@ -891,16 +891,11 @@ main {
     cursor: pointer;
 }
 
-.session-table tbody tr:hover,
-.session-table tbody tr.selected {
+.session-table tbody tr:hover:not(.selected) {
     background: rgba(56, 139, 253, 0.1);
 }
 
 .session-table tbody tr.selected {
-    box-shadow: inset 3px 0 #58a6ff;
-}
-
-.session-table tbody tr:focus-visible {
     position: relative;
     outline: 2px solid #58a6ff;
     outline-offset: -2px;

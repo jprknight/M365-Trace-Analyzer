@@ -8,11 +8,13 @@ The current implementation supports opening HTTP Archive (`.har`) and encrypted 
 
 - Download the latest Windows release.
 - Extract the ZIP file.
-- Open Command Prompt in the extracted folder and run:
+- Open a terminal in the extracted folder and run:
 
-```cmd
-M365Trace.Web.exe --urls "http://localhost:8080"
+```powershell
+./M365Trace.Web.exe --urls "http://localhost:8080"
 ```
+
+The application attempts to open `http://localhost:8080` in the default web browser after startup. If the browser does not open, navigate to that address manually. Keep the terminal open while using the analyzer and press `Ctrl+C` to stop it.
 
 ## Versioning and releases
 

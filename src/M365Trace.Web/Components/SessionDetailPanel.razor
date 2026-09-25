@@ -153,14 +153,20 @@
                 <div class="header-list">@RenderHeaders(Session.RequestHeaders)</div>
             </details>
 
-            @if (Session.RequestContent is not null)
-            {
-                <details>
-                    <summary>Request body</summary>
+            <details open>
+                <summary>Request body</summary>
+                @if (Session.RequestContent is not null)
+                {
                     <BodyInspector @key="@($"request-{Session.Id}")"
                                    Content="Session.RequestContent" />
-                </details>
-            }
+                }
+                else
+                {
+                    <p class="muted body-unavailable">
+                        No request body was recorded for this session.
+                    </p>
+                }
+            </details>
         }
 
         @if (TrafficView != DetailTrafficView.Request)

@@ -610,6 +610,43 @@ public sealed class HomeTests : IDisposable
     }
 
     [Fact]
+    public void RequestAndResponseBodies_AreExpandedByDefault()
+    {
+        _importer.Sessions =
+        [
+            CreateSession(
+                1,
+                "POST",
+                "https://example.test/body",
+                200,
+                "OK",
+                50,
+                requestContent: new TraceContent(
+                    "request body",
+                    "text/plain",
+                    12,
+                    false,
+                    false))
+        ];
+
+        var component = RenderAndLoad();
+
+        component.WaitForAssertion(() =>
+        {
+            var bodySummaries = component.FindAll("summary")
+                .Where(summary =>
+                    summary.TextContent is "Request body" or "Response body")
+                .ToArray();
+
+            Assert.Equal(2, bodySummaries.Length);
+            Assert.All(
+                bodySummaries,
+                summary => Assert.True(
+                    summary.ParentElement?.HasAttribute("open")));
+        });
+    }
+
+    [Fact]
     public void MissingHeadersAndBodies_AreRepresentedClearly()
     {
         _importer.Sessions =
@@ -635,7 +672,12 @@ public sealed class HomeTests : IDisposable
                 component.FindAll("p.muted")
                     .Count(element =>
                         element.TextContent == "No headers were recorded."));
-            Assert.DoesNotContain("Request body", component.Markup);
+            var requestBody = component.FindAll("summary")
+                .Single(summary => summary.TextContent == "Request body");
+            Assert.True(requestBody.ParentElement?.HasAttribute("open"));
+            Assert.Equal(
+                "No request body was recorded for this session.",
+                component.Find(".body-unavailable").TextContent.Trim());
             Assert.DoesNotContain("Response body", component.Markup);
         });
     }
