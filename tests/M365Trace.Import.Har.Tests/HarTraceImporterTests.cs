@@ -477,6 +477,68 @@ public sealed class HarTraceImporterTests
         Assert.Contains("invalid data", exception.Message);
     }
 
+    [Fact]
+    public async Task ImportWithReportAsync_MalformedEntry_SkipsOnlyThatEntry()
+    {
+        const string json =
+            """
+            {
+              "log": {
+                "entries": [
+                  {
+                    "startedDateTime": "2026-09-25T10:00:00-04:00",
+                    "time": 1,
+                    "request": {
+                      "method": "GET",
+                      "url": "https://example.test/valid",
+                      "httpVersion": "HTTP/1.1",
+                      "headers": []
+                    },
+                    "response": {
+                      "status": 200,
+                      "httpVersion": "HTTP/1.1",
+                      "headers": [],
+                      "content": {
+                        "size": 2,
+                        "mimeType": "text/plain",
+                        "text": "ok"
+                      }
+                    }
+                  },
+                  {
+                    "startedDateTime": "2026-09-25T10:00:01-04:00",
+                    "time": 1,
+                    "response": {
+                      "status": 500,
+                      "headers": [],
+                      "content": {}
+                    }
+                  }
+                ]
+              }
+            }
+            """;
+        await using var stream = new MemoryStream(
+            Encoding.UTF8.GetBytes(json));
+
+        var result = await new HarTraceImporter()
+            .ImportWithReportAsync(stream);
+
+        var session = Assert.Single(result.Sessions);
+        Assert.Equal("https://example.test/valid", session.Url.AbsoluteUri);
+        Assert.Equal(2, result.Quality.SourceSessions);
+        Assert.Equal(1, result.Quality.ImportedSessions);
+        Assert.Equal(1, result.Quality.SkippedSessions);
+        Assert.Contains(
+            result.Issues,
+            issue =>
+                issue.Category == TraceImportIssueCategory.SkippedSession
+                && issue.SessionReference == "2"
+                && issue.Message.Contains(
+                    "request",
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
     private static FileStream OpenTestData(string fileName) =>
         File.OpenRead(Path.Combine(AppContext.BaseDirectory, "TestData", fileName));
 

@@ -51,6 +51,15 @@ public sealed class HarTraceImporter : ITraceImporter
     public async Task<IReadOnlyList<TraceSession>> ImportAsync(
         Stream stream,
         TraceImportOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        (await ImportWithReportAsync(
+            stream,
+            options,
+            cancellationToken)).Sessions;
+
+    public async Task<TraceImportResult> ImportWithReportAsync(
+        Stream stream,
+        TraceImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -97,7 +106,7 @@ public sealed class HarTraceImporter : ITraceImporter
         }
     }
 
-    private IReadOnlyList<TraceSession> ParseDocument(JsonElement root)
+    private TraceImportResult ParseDocument(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object
             || !root.TryGetProperty("log", out var log)
@@ -120,15 +129,40 @@ public sealed class HarTraceImporter : ITraceImporter
 
         var pages = ParsePages(log);
         var sessions = new List<TraceSession>(entries.GetArrayLength());
+        var issues = new List<TraceImportIssue>();
         var id = 1;
 
         foreach (var entry in entries.EnumerateArray())
         {
-            sessions.Add(ParseEntry(entry, id, pages));
+            try
+            {
+                sessions.Add(ParseEntry(entry, id, pages));
+            }
+            catch (HarImportException exception)
+            {
+                issues.Add(new TraceImportIssue(
+                    TraceImportIssueCategory.SkippedSession,
+                    $"HAR entry {id} was skipped: {exception.Message}",
+                    id.ToString(CultureInfo.InvariantCulture)));
+            }
+
             id++;
         }
 
-        return sessions;
+        if (sessions.Count == 0)
+        {
+            var detail = issues.Count == 0
+                ? string.Empty
+                : $" {issues[0].Message}";
+            throw new HarImportException(
+                "The HAR file does not contain any usable sessions."
+                + detail);
+        }
+
+        return TraceImportResult.Create(
+            sessions,
+            issues,
+            entries.GetArrayLength());
     }
 
     private TraceSession ParseEntry(

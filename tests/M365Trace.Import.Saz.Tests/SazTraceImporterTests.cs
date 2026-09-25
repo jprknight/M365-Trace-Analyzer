@@ -481,6 +481,42 @@ public sealed class SazTraceImporterTests
     }
 
     [Fact]
+    public async Task ImportWithReportAsync_MalformedSession_SkipsOnlyThatSession()
+    {
+        await using var stream = CreateArchive(archive =>
+        {
+            AddBasicSession(
+                archive,
+                1,
+                "https://example.test/valid",
+                200);
+            AddBasicSession(
+                archive,
+                2,
+                "https://example.test/malformed",
+                500);
+            AddEntry(archive, "raw/2_m.xml", "<Session>");
+        });
+
+        var result = await new SazTraceImporter()
+            .ImportWithReportAsync(stream);
+
+        var session = Assert.Single(result.Sessions);
+        Assert.Equal("http://example.test/valid", session.Url.AbsoluteUri);
+        Assert.Equal(2, result.Quality.SourceSessions);
+        Assert.Equal(1, result.Quality.ImportedSessions);
+        Assert.Equal(1, result.Quality.SkippedSessions);
+        Assert.Contains(
+            result.Issues,
+            issue =>
+                issue.Category == TraceImportIssueCategory.SkippedSession
+                && issue.SessionReference == "2"
+                && issue.Message.Contains(
+                    "metadata",
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ImportAsync_CancelledImport_StopsProcessing()
     {
         await using var stream = CreateArchive(archive =>

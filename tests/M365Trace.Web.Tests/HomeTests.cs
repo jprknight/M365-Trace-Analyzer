@@ -121,6 +121,55 @@ public sealed class HomeTests : IDisposable
     }
 
     [Fact]
+    public void ImportQuality_ShowsRecoverableWarningsAndCounts()
+    {
+        _importer.ImportReport = _ => Task.FromResult(
+            TraceImportResult.Create(
+                _importer.Sessions,
+                [
+                    new TraceImportIssue(
+                        TraceImportIssueCategory.SkippedSession,
+                        "Session 4 was skipped.",
+                        "4")
+                ],
+                sourceSessionCount: 4));
+        var component = RenderAndLoad();
+
+        component.WaitForAssertion(() =>
+        {
+            var quality = component.Find("details.import-quality");
+            Assert.Contains("3 of 4 sessions imported", quality.TextContent);
+            Assert.Contains("Source sessions4", quality.TextContent);
+            Assert.Contains("Imported3", quality.TextContent);
+            Assert.Contains("Skipped1", quality.TextContent);
+            Assert.Contains("Session 4 was skipped.", quality.TextContent);
+            Assert.Contains(
+                "import-quality-warning",
+                quality.GetAttribute("class"));
+        });
+    }
+
+    [Fact]
+    public void ImportQuality_ShowsCleanImportStatus()
+    {
+        var component = RenderAndLoad();
+
+        component.WaitForAssertion(() =>
+        {
+            var quality = component.Find("details.import-quality");
+            Assert.Contains(
+                "3 sessions imported without warnings",
+                quality.TextContent);
+            Assert.Contains(
+                "No import-quality warnings were reported.",
+                quality.TextContent);
+            Assert.Contains(
+                "import-quality-complete",
+                quality.GetAttribute("class"));
+        });
+    }
+
+    [Fact]
     public void UnsupportedFile_ShowsActionableError()
     {
         _importer.CanImportFile = false;
@@ -854,6 +903,12 @@ public sealed class HomeTests : IDisposable
             set;
         }
 
+        public Func<TraceImportOptions?, Task<TraceImportResult>>? ImportReport
+        {
+            get;
+            set;
+        }
+
         public string FormatName => "Test trace";
 
         public bool CanImport(string fileName) => CanImportFile;
@@ -866,6 +921,21 @@ public sealed class HomeTests : IDisposable
             Options.Add(options);
             return Import?.Invoke(options)
                 ?? Task.FromResult(Sessions);
+        }
+
+        public async Task<TraceImportResult> ImportWithReportAsync(
+            Stream stream,
+            TraceImportOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (ImportReport is not null)
+            {
+                Options.Add(options);
+                return await ImportReport(options);
+            }
+
+            return TraceImportResult.Create(
+                await ImportAsync(stream, options, cancellationToken));
         }
     }
 

@@ -1,0 +1,85 @@
+@using M365Trace.Core
+
+<details class="import-quality @(Result.Quality.HasWarnings ? "import-quality-warning" : "import-quality-complete")">
+    <summary>
+        <span class="import-quality-heading">
+            <strong>Import quality</strong>
+            <span>@GetSummary()</span>
+        </span>
+        <small>Click to review details</small>
+    </summary>
+
+    <div class="import-quality-content">
+        <div class="import-quality-metrics">
+            @RenderMetric("Source sessions", Result.Quality.SourceSessions)
+            @RenderMetric("Imported", Result.Quality.ImportedSessions)
+            @RenderMetric("Complete", Result.Quality.CompleteSessions)
+            @RenderMetric("Partial", Result.Quality.PartialSessions)
+            @RenderMetric("Skipped", Result.Quality.SkippedSessions)
+            @RenderMetric("Missing responses", Result.Quality.MissingResponses)
+            @RenderMetric("Truncated bodies", Result.Quality.TruncatedBodies)
+            @RenderMetric("Unsupported features", Result.Quality.UnsupportedFeatures)
+        </div>
+
+        @if (Result.Issues.Count > 0)
+        {
+            <ul class="import-quality-issues">
+                @foreach (var issue in Result.Issues)
+                {
+                    <li>
+                        <strong>@FormatCategory(issue.Category)</strong>
+                        <span>@issue.Message</span>
+                    </li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="import-quality-empty">
+                No import-quality warnings were reported.
+            </p>
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public required TraceImportResult Result { get; set; }
+
+    private string GetSummary()
+    {
+        if (!Result.Quality.HasWarnings)
+        {
+            return $"{Result.Quality.ImportedSessions:N0} sessions imported without warnings";
+        }
+
+        return $"{Result.Quality.ImportedSessions:N0} of "
+            + $"{Result.Quality.SourceSessions:N0} sessions imported, "
+            + $"{Result.Issues.Count:N0} warnings";
+    }
+
+    private static string FormatCategory(
+        TraceImportIssueCategory category) => category switch
+        {
+            TraceImportIssueCategory.SkippedSession => "Skipped session",
+            TraceImportIssueCategory.PartialSession => "Partial session",
+            TraceImportIssueCategory.TruncatedContent => "Truncated content",
+            TraceImportIssueCategory.UnsupportedFeature => "Unsupported feature",
+            TraceImportIssueCategory.InvalidContent => "Invalid content",
+            _ => category.ToString()
+        };
+
+    private static RenderFragment RenderMetric(
+        string label,
+        int value) => builder =>
+        {
+            builder.OpenElement(0, "div");
+            builder.OpenElement(1, "span");
+            builder.AddContent(2, label);
+            builder.CloseElement();
+            builder.OpenElement(3, "strong");
+            builder.AddContent(4, value.ToString("N0"));
+            builder.CloseElement();
+            builder.CloseElement();
+        };
+}

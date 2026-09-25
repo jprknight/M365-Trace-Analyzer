@@ -52,7 +52,7 @@ Status markers in this document apply only where the complete listed outcome has
 Phase 1 is complete. Phase 2 is underway, and Phase 3 remains planned:
 
 - Release `v1.0.2` delivered the encrypted SAZ, UI, port, classification, and unified-versioning work that formed the roadmap baseline.
-- CI now validates formatting, warning-free builds, 196 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
+- CI now validates formatting, warning-free builds, 201 solution tests, a 40% aggregate coverage floor, vulnerable NuGet packages, and a self-contained Windows package.
 - A packaged Chromium test validates application startup, HAR upload, filtering, filter clearing, diagnostic headers, and request-only detail selection.
 - CodeQL, Dependabot, tag-driven release packaging, checksums, and artifact provenance are configured.
 - Importer boundary, malformed-input, cancellation, archive safety, component, secure body-preview, and packaged-browser tests have been expanded.
@@ -289,7 +289,7 @@ If the selected session is removed from the visible result:
 - Preserve request-only and response-missing sessions with explicit completeness state.
 - Add fixtures representing real-world HTTP/1.1, CONNECT, compressed, chunked, encrypted, request-only, and partially malformed archives.
 
-#### 8. Add import quality reporting
+#### 8. [x] Add import quality reporting
 
 - Return an import result containing sessions plus warnings, truncations, skipped entries, unsupported features, and completeness counts.
 - Present a post-import quality banner with an expandable details view.

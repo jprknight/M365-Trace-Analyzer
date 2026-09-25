@@ -103,6 +103,11 @@
 }
 else if (workspace.Sessions.Count > 0)
 {
+    @if (importResult is not null)
+    {
+        <ImportQualityBanner Result="importResult" />
+    }
+
     @if (traceSummary is not null)
     {
         <TraceSummaryPanel Summary="traceSummary"
@@ -139,6 +144,7 @@ else if (workspace.Sessions.Count > 0)
 
     private M365Trace.Web.Services.TraceWorkspaceState workspace = null!;
     private M365Trace.Web.Services.TraceSummary? traceSummary;
+    private TraceImportResult? importResult;
     private string? errorMessage;
     private string archivePassword = string.Empty;
     private bool isLoading;
@@ -217,6 +223,7 @@ else if (workspace.Sessions.Count > 0)
         errorMessage = null;
         workspace.ClearSessions();
         traceSummary = null;
+        importResult = null;
         archivePassword = string.Empty;
         pendingFile = null;
         pendingImporter = null;
@@ -290,12 +297,13 @@ else if (workspace.Sessions.Count > 0)
         TraceImportOptions? options = null)
     {
         await using var stream = file.OpenReadStream(MaximumBrowserFileSize);
-        var importedSessions = await importer.ImportAsync(stream, options);
+        var result = await importer.ImportWithReportAsync(stream, options);
 
         workspace.ReplaceSessions(
             file.Name,
-            importedSessions.Select(session =>
+            result.Sessions.Select(session =>
                 session with { Analysis = AnalysisEngine.Analyze(session) }));
+        importResult = result;
         traceSummary = TraceSummaryService.Create(workspace.Sessions);
         pendingFile = null;
         pendingImporter = null;
@@ -308,6 +316,7 @@ else if (workspace.Sessions.Count > 0)
         pendingImporter = null;
         workspace.ClearSessions();
         traceSummary = null;
+        importResult = null;
         errorMessage = null;
     }
 

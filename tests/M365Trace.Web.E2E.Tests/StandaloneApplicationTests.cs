@@ -72,6 +72,12 @@ public sealed class StandaloneApplicationTests
             await page.Locator("input[type=file]").First.SetInputFilesAsync(harPath);
             await WaitForRowCountWithDiagnosticsAsync(page, 2);
 
+            var importQuality = page.Locator("details.import-quality");
+            await importQuality.WaitForAsync();
+            Assert.Contains(
+                "2 of 2 sessions imported",
+                await importQuality.InnerTextAsync());
+
             var diagnosticHeader = page
                 .Locator(".diagnostic-header-row")
                 .Filter(new LocatorFilterOptions { HasText = "request-id" });
