@@ -2,12 +2,14 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Playwright;
-using M365Trace.Web.Services;
 
 namespace M365Trace.Web.E2E.Tests;
 
 public sealed class StandaloneApplicationTests
 {
+    private const string DisableBrowserLaunchEnvironmentVariable =
+        "M365_TRACE_DISABLE_BROWSER_LAUNCH";
+
     [Fact]
     public async Task StandalonePackage_SupportsCriticalInvestigationWorkflow()
     {
@@ -47,8 +49,7 @@ public sealed class StandaloneApplicationTests
                 CreateNoWindow = true
             };
             startInfo.Environment[
-                DefaultBrowserLauncher.DisableBrowserLaunchEnvironmentVariable]
-                = "1";
+                DisableBrowserLaunchEnvironmentVariable] = "1";
             process = Process.Start(startInfo);
             Assert.NotNull(process);
 
