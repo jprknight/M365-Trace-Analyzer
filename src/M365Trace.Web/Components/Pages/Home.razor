@@ -103,7 +103,8 @@
 }
 else if (workspace.Sessions.Count > 0)
 {
-    @if (importResult is not null)
+    @if (importResult is not null
+        && (importResult.Quality.HasWarnings || importResult.Issues.Count > 0))
     {
         <ImportQualityBanner Result="importResult" />
     }

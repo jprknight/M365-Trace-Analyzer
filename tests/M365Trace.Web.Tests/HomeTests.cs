@@ -138,6 +138,7 @@ public sealed class HomeTests : IDisposable
         component.WaitForAssertion(() =>
         {
             var quality = component.Find("details.import-quality");
+            Assert.True(quality.HasAttribute("open"));
             Assert.Contains("3 of 4 sessions imported", quality.TextContent);
             Assert.Contains("Source sessions4", quality.TextContent);
             Assert.Contains("Imported3", quality.TextContent);
@@ -150,23 +151,12 @@ public sealed class HomeTests : IDisposable
     }
 
     [Fact]
-    public void ImportQuality_ShowsCleanImportStatus()
+    public void ImportQuality_DoesNotRenderForCleanImport()
     {
         var component = RenderAndLoad();
 
         component.WaitForAssertion(() =>
-        {
-            var quality = component.Find("details.import-quality");
-            Assert.Contains(
-                "3 sessions imported without warnings",
-                quality.TextContent);
-            Assert.Contains(
-                "No import-quality warnings were reported.",
-                quality.TextContent);
-            Assert.Contains(
-                "import-quality-complete",
-                quality.GetAttribute("class"));
-        });
+            Assert.Empty(component.FindAll("details.import-quality")));
     }
 
     [Fact]
