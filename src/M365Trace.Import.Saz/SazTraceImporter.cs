@@ -46,6 +46,15 @@ public sealed partial class SazTraceImporter : ITraceImporter
     public async Task<IReadOnlyList<TraceSession>> ImportAsync(
         Stream stream,
         TraceImportOptions? options = null,
+        CancellationToken cancellationToken = default) =>
+        (await ImportWithReportAsync(
+            stream,
+            options,
+            cancellationToken)).Sessions;
+
+    public async Task<TraceImportResult> ImportWithReportAsync(
+        Stream stream,
+        TraceImportOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -113,7 +122,7 @@ public sealed partial class SazTraceImporter : ITraceImporter
         }
     }
 
-    private async Task<IReadOnlyList<TraceSession>> ParseArchiveAsync(
+    private async Task<TraceImportResult> ParseArchiveAsync(
         SharpZipFile archive,
         bool hasPassword,
         CancellationToken cancellationToken)
@@ -195,28 +204,56 @@ public sealed partial class SazTraceImporter : ITraceImporter
         }
 
         var sessions = new List<TraceSession>();
+        var issues = new List<TraceImportIssue>();
 
         foreach (var pair in sessionFiles.OrderBy(pair => pair.Key))
         {
             if (pair.Value.Request is null)
             {
+                issues.Add(new TraceImportIssue(
+                    TraceImportIssueCategory.SkippedSession,
+                    $"SAZ session {pair.Key} was skipped because its request "
+                    + "file is missing.",
+                    pair.Key.ToString(CultureInfo.InvariantCulture)));
                 continue;
             }
 
-            sessions.Add(await ParseSessionAsync(
-                archive,
-                pair.Key,
-                pair.Value,
-                cancellationToken));
+            try
+            {
+                sessions.Add(await ParseSessionAsync(
+                    archive,
+                    pair.Key,
+                    pair.Value,
+                    cancellationToken));
+            }
+            catch (SazInvalidPasswordException)
+            {
+                throw;
+            }
+            catch (SazImportException exception)
+            {
+                issues.Add(new TraceImportIssue(
+                    TraceImportIssueCategory.SkippedSession,
+                    $"SAZ session {pair.Key} was skipped: "
+                    + exception.Message,
+                    pair.Key.ToString(CultureInfo.InvariantCulture)));
+            }
         }
 
         if (sessions.Count == 0)
         {
+            var detail = issues.Count == 0
+                ? string.Empty
+                : $" {issues[0].Message}";
             throw new SazImportException(
-                "The SAZ archive does not contain any supported raw HTTP sessions.");
+                "The SAZ archive does not contain any usable raw HTTP sessions."
+                + detail);
         }
 
-        return sessions;
+        return TraceImportResult.Create(
+            sessions,
+            issues,
+            sessionFiles.Count);
     }
 
     private async Task<TraceSession> ParseSessionAsync(

@@ -172,6 +172,47 @@ public sealed class TraceSessionMetadataTests
             completeness.Response.Body);
     }
 
+    [Fact]
+    public void ImportResult_DerivesCompletenessIssuesAndCounts()
+    {
+        var session = CreateSession() with
+        {
+            Metadata = new TraceSessionMetadata
+            {
+                Source = new TraceSourceMetadata(
+                    TraceSourceFormat.Saz,
+                    "7"),
+                Completeness = new TraceSessionCompleteness(
+                    new TraceMessageCompleteness(
+                        TraceCaptureState.Complete,
+                        TraceContentAvailability.Truncated),
+                    new TraceMessageCompleteness(
+                        TraceCaptureState.Missing,
+                        TraceContentAvailability.UnsupportedEncoding),
+                    TraceMetadataSource.SazMetadata)
+            }
+        };
+
+        var result = TraceImportResult.Create([session]);
+
+        Assert.Equal(1, result.Quality.PartialSessions);
+        Assert.Equal(1, result.Quality.MissingResponses);
+        Assert.Equal(1, result.Quality.TruncatedBodies);
+        Assert.Equal(1, result.Quality.UnsupportedFeatures);
+        Assert.Contains(
+            result.Issues,
+            issue =>
+                issue.Category == TraceImportIssueCategory.PartialSession);
+        Assert.Contains(
+            result.Issues,
+            issue =>
+                issue.Category == TraceImportIssueCategory.TruncatedContent);
+        Assert.Contains(
+            result.Issues,
+            issue =>
+                issue.Category == TraceImportIssueCategory.UnsupportedFeature);
+    }
+
     private static TraceSession CreateSession() =>
         new()
         {
